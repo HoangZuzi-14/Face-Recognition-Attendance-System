@@ -1,0 +1,397 @@
+/* ── Google Font ─────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+/* ── Root variables ─────────────────── */
+:root {
+    --primary: #6e0000;
+    --primary-container: #990000;
+    --on-primary: #ffffff;
+    --surface: #fbf9f8;
+    --surface-container: #efeded;
+    --surface-container-low: #f5f3f3;
+    --surface-container-lowest: #ffffff;
+    --on-surface: #1b1c1c;
+    --on-surface-variant: #5b403c;
+    --outline-variant: #e4beb8;
+    --error: #ba1a1a;
+    --secondary-container: #e4e2e1;
+}
+
+/* ── Global ──────────────────────────── */
+.stApp {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    background-color: var(--surface) !important;
+}
+
+/* Hide default Streamlit chrome */
+#MainMenu, footer, header, .stDeployButton { display: none !important; }
+.block-container { padding-top: 0rem !important; max-width: 100% !important; }
+
+/* ── Top Navbar (injected HTML) ────── */
+.zuzo-nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+    background: rgba(251,249,248,0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(228,190,184,0.15);
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 2rem; height: 56px;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.zuzo-nav .brand {
+    font-size: 1.25rem; font-weight: 800; letter-spacing: -0.04em;
+    color: var(--primary);
+}
+.zuzo-nav .nav-links { display: flex; gap: 1.5rem; }
+.zuzo-nav .nav-links a {
+    color: var(--on-surface-variant); text-decoration: none;
+    font-size: 0.875rem; font-weight: 500;
+    transition: color 0.2s;
+}
+.zuzo-nav .nav-links a:hover { color: var(--primary); }
+
+/* ── Page title ──────────────────────── */
+.page-title {
+    font-size: 2rem; font-weight: 800; color: var(--on-surface);
+    letter-spacing: -0.03em; margin: 0 0 0.25rem 0;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* ── Tabs ─────────────────────────────── */
+.zuzo-tabs {
+    display: flex; gap: 2rem;
+    border-bottom: 1px solid rgba(228,190,184,0.15);
+    margin-bottom: 1.5rem;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.zuzo-tabs .tab {
+    padding-bottom: 0.75rem; font-size: 0.875rem; font-weight: 500;
+    color: var(--on-surface-variant); cursor: pointer;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+    text-decoration: none;
+}
+.zuzo-tabs .tab.active {
+    color: var(--primary); font-weight: 700;
+    border-bottom-color: var(--primary);
+}
+.zuzo-tabs .tab:hover { color: var(--primary); }
+
+/* ── Card ─────────────────────────────── */
+.zuzo-card {
+    background: var(--surface-container-lowest);
+    border-radius: 1rem; overflow: hidden;
+    border: 1px solid rgba(228,190,184,0.1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    padding: 1.5rem;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+
+/* ── Webcam area ─────────────────────── */
+.cam-placeholder {
+    position: relative; aspect-ratio: 16/9;
+    border-radius: 0.75rem; overflow: hidden;
+    background: #1b1c1c; margin-bottom: 1rem;
+    display: flex; align-items: center; justify-content: center;
+}
+.cam-placeholder .live-badge {
+    position: absolute; top: 0.75rem; left: 0.75rem;
+    display: flex; align-items: center; gap: 0.4rem;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(12px);
+    padding: 0.25rem 0.75rem; border-radius: 999px;
+    color: white; font-size: 0.7rem; font-weight: 600;
+    letter-spacing: 0.05em;
+}
+.cam-placeholder .live-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--error);
+    animation: pulse-dot 1.5s infinite;
+}
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* ── Buttons ──────────────────────────── */
+.zuzo-btn-primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    background: var(--primary); color: var(--on-primary);
+    padding: 0.65rem 1.25rem; border-radius: 999px; border: none;
+    font-weight: 600; font-size: 0.8rem; cursor: pointer;
+    transition: opacity 0.2s; width: 100%;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.zuzo-btn-primary:hover { opacity: 0.9; }
+
+.zuzo-btn-secondary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    background: var(--secondary-container); color: var(--on-surface);
+    padding: 0.65rem 1.25rem; border-radius: 999px; border: none;
+    font-weight: 600; font-size: 0.8rem; cursor: pointer;
+    transition: background 0.2s; width: 100%;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.zuzo-btn-secondary:hover { background: var(--surface-container); }
+
+.zuzo-btn-outline {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: transparent; color: var(--on-surface-variant);
+    padding: 0.5rem 1rem; border-radius: 999px;
+    border: 1px solid var(--outline-variant);
+    font-weight: 600; font-size: 0.8rem; cursor: pointer;
+    transition: background 0.2s;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.zuzo-btn-outline:hover { background: var(--surface-container-low); }
+
+.zuzo-btn-danger {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: transparent; color: var(--error);
+    padding: 0.5rem 1rem; border-radius: 999px;
+    border: 1px solid rgba(186,26,26,0.2);
+    font-weight: 600; font-size: 0.8rem; cursor: pointer;
+    transition: background 0.2s;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.zuzo-btn-danger:hover { background: rgba(186,26,26,0.05); }
+
+/* ── New Cam Hub matching mockup ────── */
+.cam-container {
+    position: relative;
+    border-radius: 1rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+    border: 1px solid rgba(0,0,0,0.1);
+}
+.live-preview-badge {
+    position: absolute;
+    top: 1rem;
+    left: 1.25rem;
+    background: rgba(0,0,0,0.4);
+    backdrop-filter: blur(8px);
+    color: white;
+    padding: 0.3rem 0.8rem;
+    border-radius: 2rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    z-index: 10;
+}
+.live-preview-badge .dot {
+    width: 6px;
+    height: 6px;
+    background: #ef4444;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #ef4444;
+}
+
+.cam-btns-row .stButton button {
+    height: 3.2rem !important;
+    font-size: 0.95rem !important;
+    font-weight: 500 !important;
+    background-color: white !important;
+    color: #ff4b4b !important;
+    border: 1px solid #ff4b4b !important;
+    transition: all 0.2s ease;
+}
+.cam-btns-row .stButton button:hover {
+    background-color: #fff5f5 !important;
+    border-color: #ff4b4b !important;
+}
+
+/* ── Info Card mockup styling ── */
+.mockup-info-card {
+    background: #fbf9f8;
+    border-radius: 1rem;
+    padding: 2rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    border: 1px solid rgba(0,0,0,0.02);
+}
+.mockup-info-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.2rem;
+    font-size: 0.9rem;
+}
+.mockup-info-label {
+    color: #5b403c;
+    font-weight: 500;
+}
+.mockup-info-value {
+    color: #1b1c1c;
+    font-weight: 700;
+}
+
+/* ── Info card ────────────────────────── */
+.info-card {
+    background: var(--surface-container-low);
+    border-radius: 1rem; padding: 1.25rem;
+    border: 1px solid rgba(228,190,184,0.05);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.info-card .info-label {
+    font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; font-weight: 700;
+    color: var(--on-surface-variant); margin-bottom: 0.75rem;
+}
+.info-card .info-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(228,190,184,0.1);
+}
+.info-card .info-row:last-child { border-bottom: none; }
+.info-card .info-key { color: var(--on-surface-variant); font-size: 0.85rem; font-weight: 500; }
+.info-card .info-val { color: var(--on-surface); font-size: 0.85rem; font-weight: 700; }
+
+/* ── Attendance table ────────────────── */
+.att-table {
+    width: 100%; text-align: left;
+    border-collapse: separate; border-spacing: 0;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.att-table thead th {
+    font-size: 0.75rem; text-transform: uppercase;
+    letter-spacing: 0.1em; font-weight: 700;
+    color: var(--on-surface-variant);
+    padding: 1 1rem 1rem;
+}
+.att-table thead th:nth-child(3) { text-align: center; }
+.att-table thead th:last-child { text-align: right; }
+.att-table tbody tr {
+    transition: background 0.15s;
+}
+.att-table tbody tr:hover { background: var(--surface-container-low); }
+.att-table tbody td {
+    padding: 0.85rem 1rem; font-size: 0.85rem;
+    vertical-align: middle;
+}
+.att-table tbody td:first-child {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500; color: var(--on-surface-variant);
+}
+.att-table tbody td:nth-child(2) { font-weight: 700; color: var(--on-surface); }
+.att-table tbody td:nth-child(3) { text-align: center; color: var(--on-surface-variant); }
+.att-table tbody td:last-child { text-align: right; }
+
+/* ── Status badges ───────────────────── */
+.badge {
+    display: inline-flex; align-items: center;
+    padding: 0.25rem 0.75rem; border-radius: 999px;
+    font-size: 0.7rem; font-weight: 700;
+}
+.badge-present { background: #dcfce7; color: #15803d; }
+.badge-late    { background: #fef9c3; color: #a16207; }
+.badge-absent  { background: #fde2e2; color: #b91c1c; }
+.badge-unknown { background: #e5e7eb; color: #6b7280; }
+
+/* ── Summary chips ───────────────────── */
+.summary-bar {
+    display: flex; gap: 0.5rem; flex-wrap: wrap;
+    margin-top: 1rem; padding-top: 1rem;
+    border-top: 1px solid rgba(228,190,184,0.1);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.summary-chip {
+    display: flex; align-items: center; gap: 0.35rem;
+    font-size: 0.75rem; font-weight: 600;
+    color: var(--on-surface-variant);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot-present { background: #22c55e; }
+.dot-late    { background: #eab308; }
+.dot-absent  { background: #ef4444; }
+.dot-unknown { background: #9ca3af; }
+
+/* ── Footer ───────────────────────────── */
+.zuzo-footer {
+    background: var(--surface-container-low);
+    padding: 2rem; margin-top: 2rem;
+    border-top: 1px solid rgba(228,190,184,0.1);
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    text-align: center; font-size: 0.8rem;
+    color: var(--on-surface-variant);
+}
+.zuzo-footer .footer-brand {
+    font-weight: 700; color: var(--on-surface);
+    margin-bottom: 0.25rem;
+}
+
+/* ── Streamlit widget overrides ─────── */
+.stSelectbox label, .stTextInput label, .stNumberInput label,
+.stFileUploader label, .stRadio label, .stExpander summary {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-weight: 600 !important; font-size: 0.85rem !important;
+    color: var(--on-surface-variant) !important;
+}
+.stButton > button {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    border-radius: 999px !important; font-weight: 600 !important;
+}
+div[data-testid="stExpander"] {
+    border-radius: 0.75rem !important;
+    border-color: rgba(228,190,184,0.15) !important;
+}
+
+/* ── Mockup specific adjustments ── */
+.stButton button {
+    border-radius: 0.75rem !important;
+}
+.stDownloadButton button {
+    border-radius: 0.75rem !important;
+}
+
+/* ── Streamlit image (webcam) override ── */
+[data-testid="stImage"] img {
+    border-radius: 0.75rem;
+}
+/* ── Camera Control Card ───────────────── */
+.cam-card {
+    background: linear-gradient(135deg, #ffffff 0%, #f9f9f9 100%);
+    border: 1px solid var(--outline-variant);
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    border-radius: 1rem;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+.cam-icon {
+    font-size: 1.5rem;
+    color: var(--primary);
+    vertical-align: middle;
+}
+.focus-warning {
+    background: #fffbeb;
+    border: 1px solid #fef3c7;
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    font-size: 0.8rem;
+    color: #92400e;
+    margin-top: 1rem;
+}
+
+/* ── Right side buttons mockup ── */
+div[data-testid="column"] button:has(div:contains("Export CSV")) {
+    background-color: white !important;
+    color: #1b1c1c !important;
+    border: 1px solid #e4e2e1 !important;
+}
+div[data-testid="column"] button:has(div:contains("Xoá bảng")) {
+    background-color: white !important;
+    color: #ba1a1a !important;
+    border: 1px solid rgba(186,26,26,0.2) !important;
+}
+
+.table-footer-link {
+    display: block;
+    text-align: center;
+    color: #6e0000;
+    font-weight: 700;
+    font-size: 0.85rem;
+    margin-top: 2rem;
+    text-decoration: none;
+    cursor: pointer;
+}
+.table-footer-link:hover {
+    text-decoration: underline;
+}
+
