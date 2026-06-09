@@ -1,14 +1,19 @@
 import os
 import numpy as np
 import time
+import cv2
+import sys
 from itertools import combinations, product
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc
-from deepface import DeepFace
 from tqdm import tqdm
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from src.face_db import EMBEDDING_MODEL_ID
+from src.face_model import get_face_model
+
 PROCESSED_DIR = "data/processed"
-MODEL_NAME = "ArcFace"
+MODEL_NAME = EMBEDDING_MODEL_ID
 
 def compute_cosine_distance(vec1, vec2):
     a = np.array(vec1)
@@ -18,6 +23,7 @@ def compute_cosine_distance(vec1, vec2):
 def extract_all_embeddings():
     person_names = [d for d in os.listdir(PROCESSED_DIR) if os.path.isdir(os.path.join(PROCESSED_DIR, d))]
     embeddings_dict = {}
+    face_model = get_face_model()
     
     for name in person_names:
         person_proc_dir = os.path.join(PROCESSED_DIR, name)
@@ -26,10 +32,11 @@ def extract_all_embeddings():
         for img in tqdm(img_names, desc=f"Embedding {name}"):
             img_path = os.path.join(person_proc_dir, img)
             try:
-                res = DeepFace.represent(img_path=img_path, model_name=MODEL_NAME, detector_backend="skip", enforce_detection=False)
-                if res:
-                    emb_list.append(res[0]["embedding"])
-            except:
+                img_bgr = cv2.imread(img_path)
+                embedding = face_model.get_embedding(img_bgr)
+                if embedding is not None:
+                    emb_list.append(embedding)
+            except Exception:
                 pass
         embeddings_dict[name] = emb_list
         
@@ -91,12 +98,13 @@ def evaluate():
     # Latency check
     print("\nStep 4: Checking Latency...")
     dummy_img = np.zeros((112, 112, 3), dtype=np.uint8)
+    face_model = get_face_model()
     start = time.time()
     for _ in range(10):
-        DeepFace.represent(img_path=dummy_img, model_name=MODEL_NAME, detector_backend="skip", enforce_detection=False)
+        face_model.get_embedding(dummy_img)
     end = time.time()
     latency = (end - start) / 10 * 1000
-    print(f"Average Inference Latency (ArcFace dummy): {latency:.2f} ms")
+    print(f"Average Inference Latency ({MODEL_NAME} dummy): {latency:.2f} ms")
     
     # Plot ROC Curve
     plt.figure()

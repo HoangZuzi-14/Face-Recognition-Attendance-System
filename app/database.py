@@ -2,8 +2,42 @@ import sqlite3
 import pandas as pd
 from datetime import datetime, time
 import os
+from app.backup import backup_sqlite_db
 
 DB_PATH = "app/attendance.db"
+DEFAULT_CLASS_NAME = "Default Demo Class"
+DEFAULT_ROSTER = [
+    ("DEMO001", "Duong Ngo Hoang Vu"),
+    ("DEMO002", "Nguyen Khanh Toan"),
+    ("DEMO003", "Tony Blair"),
+    ("DEMO004", "Donald Rumsfeld"),
+    ("DEMO005", "Gerhard Schroeder"),
+    ("DEMO006", "Ariel Sharon"),
+    ("DEMO007", "Hugo Chavez"),
+    ("DEMO008", "Junichiro Koizumi"),
+    ("DEMO009", "Jean Chretien"),
+    ("DEMO010", "John Ashcroft"),
+    ("DEMO011", "Bill Clinton"),
+    ("DEMO012", "Bill Gates"),
+    ("DEMO013", "Tom Cruise"),
+    ("DEMO014", "Tom Hanks"),
+    ("DEMO015", "Brad Pitt"),
+    ("DEMO016", "Angelina Jolie"),
+    ("DEMO017", "Jennifer Aniston"),
+    ("DEMO018", "Serena Williams"),
+    ("DEMO019", "Roger Federer"),
+    ("DEMO020", "Tiger Woods"),
+    ("DEMO021", "David Beckham"),
+    ("DEMO022", "Michael Jordan"),
+    ("DEMO023", "Barack Obama"),
+    ("DEMO024", "Hillary Clinton"),
+    ("DEMO025", "Donald Trump"),
+    ("DEMO026", "Vladimir Putin"),
+    ("DEMO027", "Angela Merkel"),
+    ("DEMO028", "Elon Musk"),
+    ("DEMO029", "Mark Zuckerberg"),
+    ("DEMO030", "Taylor Swift"),
+]
 
 
 def get_connection():
@@ -57,8 +91,154 @@ def init_db():
         )
     ''')
 
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS face_identities (
+            id INTEGER PRIMARY KEY,
+            student_id INTEGER,
+            person_key TEXT UNIQUE,
+            embedding_store TEXT DEFAULT 'db.pkl',
+            active INTEGER DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS attendance_sessions (
+            id INTEGER PRIMARY KEY,
+            class_id INTEGER,
+            session_date TEXT,
+            session_name TEXT,
+            start_time TEXT,
+            end_time TEXT,
+            deadline_hour INTEGER,
+            deadline_minute INTEGER,
+            created_at TEXT,
+            UNIQUE(class_id, session_date, session_name),
+            FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY,
+            action TEXT,
+            entity_type TEXT,
+            entity_id TEXT,
+            actor TEXT,
+            details TEXT,
+            created_at TEXT
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS recognition_events (
+            id INTEGER PRIMARY KEY,
+            class_id INTEGER,
+            session_id INTEGER,
+            student_db_key TEXT,
+            decision TEXT,
+            confidence REAL,
+            distance REAL,
+            gap REAL,
+            created_at TEXT,
+            FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_id) REFERENCES attendance_sessions(id) ON DELETE SET NULL
+        )
+    ''')
+
+    _ensure_column(c, "attendance", "session_id", "INTEGER")
+    _ensure_column(c, "attendance", "student_id", "INTEGER")
+    _ensure_column(c, "attendance", "review_reason", "TEXT")
+
+    conn.commit()
+    _sync_face_identities(conn)
+    conn.close()
+
+
+def _ensure_column(cursor, table_name, column_name, column_type):
+    cursor.execute(f"PRAGMA table_info({table_name})")
+    columns = {row[1] for row in cursor.fetchall()}
+    if column_name not in columns:
+        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
+
+def _sync_face_identities(conn):
+    now = datetime.now().isoformat()
+    conn.execute(
+        """
+        INSERT INTO face_identities (student_id, person_key, created_at, updated_at)
+        SELECT id, db_key, ?, ?
+        FROM students
+        WHERE db_key IS NOT NULL AND TRIM(db_key) != ''
+        ON CONFLICT(person_key) DO UPDATE SET
+            student_id = excluded.student_id,
+            active = 1,
+            updated_at = excluded.updated_at
+        """,
+        (now, now),
+    )
+    conn.commit()
+
+
+def write_audit_log(action, entity_type=None, entity_id=None, actor="system", details=None):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO audit_logs (action, entity_type, entity_id, actor, details, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (action, entity_type, entity_id, actor, details, datetime.now().isoformat()),
+    )
     conn.commit()
     conn.close()
+
+
+def get_or_create_attendance_session(
+    class_id,
+    deadline_hour=8,
+    deadline_minute=0,
+    session_name="Default",
+):
+    conn = get_connection()
+    c = conn.cursor()
+    today = datetime.now().strftime("%Y-%m-%d")
+    c.execute(
+        """
+        SELECT id FROM attendance_sessions
+        WHERE class_id=? AND session_date=? AND session_name=?
+        """,
+        (class_id, today, session_name),
+    )
+    row = c.fetchone()
+    if row:
+        conn.close()
+        return row[0]
+
+    c.execute(
+        """
+        INSERT INTO attendance_sessions (
+            class_id, session_date, session_name, start_time,
+            deadline_hour, deadline_minute, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            class_id,
+            today,
+            session_name,
+            datetime.now().isoformat(),
+            deadline_hour,
+            deadline_minute,
+            datetime.now().isoformat(),
+        ),
+    )
+    conn.commit()
+    session_id = c.lastrowid
+    conn.close()
+    return session_id
 
 
 # --------------- Class CRUD ---------------
@@ -84,7 +264,141 @@ def get_classes():
     return df
 
 
+def ensure_default_class(class_name=DEFAULT_CLASS_NAME):
+    """Create the demo class if needed and return its id."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id FROM classes WHERE class_name=?", (class_name,))
+    row = c.fetchone()
+    if row:
+        conn.close()
+        return row[0]
+
+    c.execute(
+        "INSERT INTO classes (class_name, created_at) VALUES (?, ?)",
+        (class_name, datetime.now().isoformat()),
+    )
+    conn.commit()
+    class_id = c.lastrowid
+    conn.close()
+    return class_id
+
+
+def class_has_roster(class_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM class_students WHERE class_id=? LIMIT 1", (class_id,))
+    has_roster = c.fetchone() is not None
+    conn.close()
+    return has_roster
+
+
+def ensure_default_roster(class_id, existing_faces=None):
+    """Populate a class with 30 demo students. Returns (added_count, skipped_count)."""
+    if existing_faces is None:
+        existing_faces = set()
+
+    backup_sqlite_db(DB_PATH)
+    conn = get_connection()
+    c = conn.cursor()
+    added = 0
+    skipped = 0
+
+    for mssv, full_name in DEFAULT_ROSTER:
+        if not mssv or not full_name:
+            skipped += 1
+            continue
+
+        assumed_db_key = full_name.replace(" ", "_")
+        db_key_to_set = assumed_db_key if assumed_db_key in existing_faces else None
+
+        c.execute("SELECT id, db_key FROM students WHERE mssv=?", (mssv,))
+        row = c.fetchone()
+        if row:
+            student_id, current_db_key = row
+            c.execute("UPDATE students SET full_name=? WHERE id=?", (full_name, student_id))
+            if db_key_to_set and current_db_key != db_key_to_set:
+                c.execute("UPDATE students SET db_key=? WHERE id=?", (db_key_to_set, student_id))
+        else:
+            c.execute(
+                "INSERT INTO students (mssv, full_name, db_key) VALUES (?, ?, ?)",
+                (mssv, full_name, db_key_to_set),
+            )
+            student_id = c.lastrowid
+
+        c.execute(
+            "INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)",
+            (class_id, student_id),
+        )
+        added += 1
+
+    conn.commit()
+    _sync_face_identities(conn)
+    conn.close()
+    write_audit_log(
+        "roster.default_applied",
+        entity_type="class",
+        entity_id=str(class_id),
+        details=f"added={added};skipped={skipped}",
+    )
+    return added, skipped
+
+
+def _next_demo_mssv(cursor):
+    cursor.execute("SELECT mssv FROM students WHERE mssv LIKE 'DEMO%'")
+    used = {row[0] for row in cursor.fetchall()}
+    idx = len(used) + 1
+    while True:
+        candidate = f"DEMO{idx:03d}"
+        if candidate not in used:
+            return candidate
+        idx += 1
+
+
+def ensure_student_in_class(class_id, full_name, db_key, mssv=None):
+    """Create/link a demo student and attach it to the selected class."""
+    full_name = str(full_name).strip()
+    db_key = str(db_key).strip()
+    if not full_name or not db_key:
+        return None
+
+    backup_sqlite_db(DB_PATH)
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("SELECT id, mssv FROM students WHERE db_key=?", (db_key,))
+    row = c.fetchone()
+    if row:
+        student_id = row[0]
+        c.execute("UPDATE students SET full_name=? WHERE id=?", (full_name, student_id))
+    else:
+        if not mssv:
+            mssv = _next_demo_mssv(c)
+        c.execute(
+            """
+            INSERT INTO students (mssv, full_name, db_key)
+            VALUES (?, ?, ?)
+            ON CONFLICT(mssv) DO UPDATE SET
+                full_name = EXCLUDED.full_name,
+                db_key = EXCLUDED.db_key
+            """,
+            (mssv, full_name, db_key),
+        )
+        c.execute("SELECT id FROM students WHERE mssv=?", (mssv,))
+        student_id = c.fetchone()[0]
+
+    c.execute(
+        "INSERT OR IGNORE INTO class_students (class_id, student_id) VALUES (?, ?)",
+        (class_id, student_id),
+    )
+    conn.commit()
+    _sync_face_identities(conn)
+    conn.close()
+    return student_id
+
+
 def delete_class(class_id):
+    backup_sqlite_db(DB_PATH)
     conn = get_connection()
     c = conn.cursor()
     c.execute("DELETE FROM class_students WHERE class_id=?", (class_id,))
@@ -92,6 +406,7 @@ def delete_class(class_id):
     c.execute("DELETE FROM classes WHERE id=?", (class_id,))
     conn.commit()
     conn.close()
+    write_audit_log("class.deleted", entity_type="class", entity_id=str(class_id))
 
 
 # --------------- Student / Roster ---------------
@@ -100,8 +415,14 @@ def upload_roster(class_id, df, existing_faces=None):
     """Import roster from DataFrame with columns 'MSSV' and 'FullName'.
     Returns (added_count, skipped_count).
     """
+    valid, message = validate_roster_dataframe(df)
+    if not valid:
+        raise ValueError(message)
+
     if existing_faces is None:
         existing_faces = set()
+
+    backup_sqlite_db(DB_PATH)
         
     conn = get_connection()
     c = conn.cursor()
@@ -142,8 +463,28 @@ def upload_roster(class_id, df, existing_faces=None):
         added += 1
 
     conn.commit()
+    _sync_face_identities(conn)
     conn.close()
+    write_audit_log(
+        "roster.imported",
+        entity_type="class",
+        entity_id=str(class_id),
+        details=f"added={added};skipped={skipped}",
+    )
     return added, skipped
+
+
+def validate_roster_dataframe(df):
+    required_id = "MSSV"
+    name_options = {"FullName", "Họ và Tên"}
+    columns = set(df.columns)
+    if required_id not in columns:
+        return False, "Roster thiếu cột MSSV."
+    if not columns.intersection(name_options):
+        return False, "Roster thiếu cột FullName hoặc Họ và Tên."
+    if df.empty:
+        return False, "Roster không có sinh viên."
+    return True, "OK"
 
 
 def get_class_roster(class_id):
@@ -161,6 +502,26 @@ def get_class_roster(class_id):
     return df
 
 
+def get_class_db_keys(class_id):
+    """Get linked face database keys for students in a class."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        SELECT s.db_key
+        FROM students s
+        JOIN class_students cs ON s.id = cs.student_id
+        WHERE cs.class_id = ?
+          AND s.db_key IS NOT NULL
+          AND TRIM(s.db_key) != ''
+        """,
+        (class_id,),
+    )
+    keys = {row[0] for row in c.fetchall()}
+    conn.close()
+    return keys
+
+
 def get_all_students():
     """Get all students."""
     conn = get_connection()
@@ -171,11 +532,19 @@ def get_all_students():
 
 def link_student_face(mssv, db_key):
     """Link a student MSSV to a face database key."""
+    backup_sqlite_db(DB_PATH)
     conn = get_connection()
     c = conn.cursor()
     c.execute("UPDATE students SET db_key=? WHERE mssv=?", (db_key, mssv))
     conn.commit()
+    _sync_face_identities(conn)
     conn.close()
+    write_audit_log(
+        "student.face_linked",
+        entity_type="student",
+        entity_id=mssv,
+        details=f"db_key={db_key}",
+    )
 
 
 def get_student_by_db_key(db_key):
@@ -202,7 +571,16 @@ def log_attendance(db_key, class_id, confidence, deadline_hour=8, deadline_minut
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
 
-    # Check if already attended today for this class
+    session_id = get_or_create_attendance_session(
+        class_id, deadline_hour, deadline_minute
+    )
+
+    c.execute("SELECT id FROM students WHERE db_key=?", (db_key,))
+    student_row = c.fetchone()
+    student_id = student_row[0] if student_row else None
+
+    # Check if already attended today for this class. The legacy uniqueness
+    # constraint is still date-based for backward compatibility.
     c.execute("SELECT id FROM attendance WHERE student_db_key=? AND class_id=? AND date=?",
               (db_key, class_id, today))
     if c.fetchone() is not None:
@@ -214,12 +592,111 @@ def log_attendance(db_key, class_id, confidence, deadline_hour=8, deadline_minut
     current_time = now.time().isoformat()
     status = "PRESENT" if current_time <= deadline else "LATE"
 
-    c.execute("""INSERT INTO attendance (student_db_key, class_id, date, timestamp, confidence, status)
-                 VALUES (?, ?, ?, ?, ?, ?)""",
-              (db_key, class_id, today, now.isoformat(), confidence, status))
+    c.execute(
+        """
+        INSERT INTO attendance (
+            student_db_key, class_id, date, timestamp, confidence,
+            status, session_id, student_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            db_key,
+            class_id,
+            today,
+            now.isoformat(),
+            confidence,
+            status,
+            session_id,
+            student_id,
+        ),
+    )
     conn.commit()
     conn.close()
+    write_audit_log(
+        "attendance.logged",
+        entity_type="attendance",
+        entity_id=db_key,
+        details=f"class_id={class_id};session_id={session_id};confidence={confidence}",
+    )
     return True, status
+
+
+def record_recognition_event(
+    class_id,
+    student_db_key,
+    decision,
+    confidence,
+    distance=None,
+    gap=None,
+    session_id=None,
+):
+    if session_id is None and class_id is not None:
+        session_id = get_or_create_attendance_session(class_id)
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT INTO recognition_events (
+            class_id, session_id, student_db_key, decision,
+            confidence, distance, gap, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            class_id,
+            session_id,
+            student_db_key,
+            decision,
+            confidence,
+            distance,
+            gap,
+            datetime.now().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_recognition_stats(class_id=None, limit=50):
+    conn = get_connection()
+    if class_id is None:
+        query = """
+            SELECT decision, COUNT(*) AS count, AVG(confidence) AS avg_confidence
+            FROM recognition_events
+            GROUP BY decision
+            ORDER BY count DESC
+            LIMIT ?
+        """
+        df = pd.read_sql_query(query, conn, params=(limit,))
+    else:
+        query = """
+            SELECT decision, COUNT(*) AS count, AVG(confidence) AS avg_confidence
+            FROM recognition_events
+            WHERE class_id=?
+            GROUP BY decision
+            ORDER BY count DESC
+            LIMIT ?
+        """
+        df = pd.read_sql_query(query, conn, params=(class_id, limit))
+    conn.close()
+    return df
+
+
+def get_recent_audit_logs(limit=20):
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT created_at, action, entity_type, entity_id, actor, details
+        FROM audit_logs
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        conn,
+        params=(limit,),
+    )
+    conn.close()
+    return df
 
 
 def get_attended_today_for_class(class_id):
@@ -324,10 +801,17 @@ def export_csv(class_id=None, export_path="app/attendance_export.csv"):
         df = pd.read_sql_query("SELECT * FROM attendance", conn)
     df.to_csv(export_path, index=False)
     conn.close()
+    write_audit_log(
+        "report.exported",
+        entity_type="class" if class_id else "attendance",
+        entity_id=str(class_id) if class_id else None,
+        details=f"path={export_path};rows={len(df)}",
+    )
     return export_path
 
 
 def clear_attendance(class_id=None):
+    backup_sqlite_db(DB_PATH)
     conn = get_connection()
     c = conn.cursor()
     if class_id:
@@ -337,6 +821,11 @@ def clear_attendance(class_id=None):
         c.execute("DELETE FROM attendance")
     conn.commit()
     conn.close()
+    write_audit_log(
+        "attendance.cleared",
+        entity_type="class" if class_id else "attendance",
+        entity_id=str(class_id) if class_id else None,
+    )
 
 
 init_db()

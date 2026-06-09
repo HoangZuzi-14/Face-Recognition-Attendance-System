@@ -1,17 +1,17 @@
 # 🛡️ Face Recognition Attendance System
 
 [![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.33-FF4B4B.svg)](https://streamlit.io/)
-[![DeepFace](https://img.shields.io/badge/DeepFace-ArcFace-brightgreen.svg)](https://github.com/serengil/deepface)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.58-FF4B4B.svg)](https://streamlit.io/)
+[![InsightFace](https://img.shields.io/badge/InsightFace-buffalo_l-brightgreen.svg)](https://github.com/deepinsight/insightface)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A sophisticated, real-time biometric attendance solution leveraging **State-of-the-Art Deep Learning** (ArcFace) and a modern **Streamlit** interface. Designed for accuracy, performance, and ease of use in professional environments.
+A sophisticated, real-time biometric attendance solution leveraging **InsightFace buffalo_l** through **ONNX Runtime** and a modern **Streamlit** interface. Designed for accuracy, performance, and ease of use in professional environments.
 
 ---
 
 ## ✨ Key Features
 
-- **⚡ High-Performance Recognition**: Utilizes the **ArcFace** model via the DeepFace framework, ensuring top-tier accuracy even with varied lighting and poses.
+- **⚡ High-Performance Recognition**: Utilizes **InsightFace buffalo_l** through ONNX Runtime, avoiding the TensorFlow/tf-keras runtime path.
 - **🎯 Motion-Aware Tracking**: Implements spatial face tracking and temporal voting logic to provide stable identifiers and minimize flickering or false negatives.
 - **📊 Real-time Dashboard**: A sleek, reactive web interface built with Streamlit for live monitoring, student registration, and attendance logging.
 - **🗄️ Robust Data Management**: Automated pipeline for building facial embedding databases (SQLite backup) and bulk processing datasets.
@@ -25,7 +25,7 @@ A sophisticated, real-time biometric attendance solution leveraging **State-of-t
 | :--- | :--- |
 | **Core** | Python 3.12 |
 | **Computer Vision** | OpenCV, Mediapipe |
-| **Deep Learning** | DeepFace (ArcFace), TensorFlow |
+| **Deep Learning** | InsightFace buffalo_l, ONNX Runtime |
 | **Frontend/App** | Streamlit |
 | **Storage** | SQLite3, Pandas |
 | **Utilities** | Scikit-learn, Numpy, Matplotlib |

@@ -20,8 +20,12 @@ import argparse
 
 import cv2
 import numpy as np
-from deepface import DeepFace
 from tqdm import tqdm
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from app.backup import backup_face_db
+from src.face_db import EMBEDDING_MODEL_ID, identity_count, set_identity_embedding
+from src.face_model import get_face_model
 
 RAW_DIR       = "data/raw"
 PROCESSED_DIR = "data/processed"
@@ -125,16 +129,17 @@ def preprocess_person(person_name):
         out_path = os.path.join(person_proc_dir, img_name)
 
         try:
-            face_objs = DeepFace.extract_faces(
-                img_path=img_path,
-                detector_backend="opencv",
-                enforce_detection=True,
-                align=True
-            )
+            img_bgr = cv2.imread(img_path)
+            face_objs = get_face_model().get_faces(img_bgr)
             if face_objs:
-                face_arr = face_objs[0]["face"]
-                face_arr = cv2.resize(face_arr, TARGET_SIZE)
-                face_bgr = cv2.cvtColor((face_arr * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+                face = max(face_objs, key=lambda item: item["det_score"])
+                x1, y1, x2, y2 = face["bbox"]
+                frame_h, frame_w = img_bgr.shape[:2]
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(frame_w, x2), min(frame_h, y2)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                face_bgr = cv2.resize(img_bgr[y1:y2, x1:x2], TARGET_SIZE)
                 cv2.imwrite(out_path, face_bgr)
                 valid_count += 1
         except Exception:
@@ -159,18 +164,15 @@ def add_to_database(person_name):
 
     print(f"  Extracting embeddings for {person_name} ({len(img_names)} images)...")
     embeddings = []
+    face_model = get_face_model()
 
     for img_name in tqdm(img_names, desc=person_name):
         img_path = os.path.join(person_proc_dir, img_name)
         try:
-            res = DeepFace.represent(
-                img_path=img_path,
-                model_name="ArcFace",
-                detector_backend="skip",
-                enforce_detection=False
-            )
-            if res and len(res) > 0:
-                embeddings.append(res[0]["embedding"])
+            img_bgr = cv2.imread(img_path)
+            embedding = face_model.get_embedding(img_bgr)
+            if embedding is not None:
+                embeddings.append(embedding)
         except Exception:
             pass
 
@@ -185,19 +187,22 @@ def add_to_database(person_name):
     if os.path.exists(DB_PATH):
         with open(DB_PATH, "rb") as f:
             db = pickle.load(f)
-        print(f"   Loaded existing database with {len(db)} identities.")
+        print(f"   Loaded existing database with {identity_count(db)} identities.")
     else:
         db = {}
         print("   No existing database found – creating new one.")
 
     action = "Updated" if person_name in db else "Added"
-    db[person_name] = avg_embedding
+    set_identity_embedding(db, person_name, avg_embedding)
 
+    backup_face_db(DB_PATH)
     with open(DB_PATH, "wb") as f:
         pickle.dump(db, f)
 
     print(f"  {action} '{person_name}' in database! ({len(embeddings)} valid embeddings)")
-    print(f"   Database now has {len(db)} identities.\n")
+    print(f"   Database now has {identity_count(db)} identities.")
+    print(f"   Embedding model: {EMBEDDING_MODEL_ID}")
+    print("   NOTE: Rebuild db.pkl after migration; DeepFace/ArcFace embeddings are not compatible with InsightFace embeddings.\n")
     return True
 
 

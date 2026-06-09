@@ -4,21 +4,44 @@ import numpy as np
 import os
 import sys
 import time
-from deepface import DeepFace
+import threading
 from collections import Counter
+from dataclasses import dataclass
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.database import log_attendance, get_attended_today_for_class, get_student_by_db_key
+from app.config import (
+    RECOGNITION_THRESHOLD, REVIEW_THRESHOLD, CONFIDENCE_GAP,
+    VOTE_WINDOW, VOTE_RATIO, SKIP_FRAMES, TRACKER_TIMEOUT, MATCH_DISTANCE_PX,
+    STATIC_FACE_TIMEOUT, RECOGNITION_FRAME_SCALE,
+)
+from app.database import (
+    log_attendance, get_attended_today_for_class, get_student_by_db_key,
+    record_recognition_event,
+)
+from src.face_db import FACE_DB_METADATA_KEY, copy_metadata_if_present, iter_identity_embeddings
+from src.face_model import get_face_model
 
 DB_PATH = "data/embeddings/db.pkl"
-THRESHOLD = 0.35
-CONFIDENCE_GAP = 0.05
-MODEL_NAME = "ArcFace"
-VOTE_WINDOW = 4
-VOTE_RATIO = 0.75
-SKIP_FRAMES = 2
-TRACKER_TIMEOUT = 1.5       # Remove tracker if face not seen for N seconds
-MATCH_DISTANCE_PX = 150     # Max pixel distance to match face to existing tracker
+
+
+@dataclass(frozen=True)
+class MatchDecision:
+    status: str
+    confidence: float
+    reason: str
+
+
+def confidence_from_distance(distance):
+    return round(max(0.0, min(1.0, 1.0 - float(distance))), 4)
+
+
+def classify_match(best_dist, gap):
+    confidence = confidence_from_distance(best_dist)
+    if best_dist < RECOGNITION_THRESHOLD and gap > CONFIDENCE_GAP:
+        return MatchDecision("ACCEPT", confidence, "strong_match")
+    if best_dist < REVIEW_THRESHOLD:
+        return MatchDecision("NEED_REVIEW", confidence, "low_confidence_or_small_gap")
+    return MatchDecision("UNKNOWN", confidence, "distance_above_review_threshold")
 
 
 class FaceTracker:
@@ -34,10 +57,14 @@ class FaceTracker:
         self.vote_buffer = []
         self.confirmed_name = None
         self.last_seen = time.time()
+        self.first_seen = self.last_seen
+        self.movement_total = 0.0
+        self.last_event_time = 0.0
         self.display_text = "..."
         self.display_color = (0, 255, 255)  # Yellow default
 
     def update_position(self, cx, cy):
+        self.movement_total += float(np.sqrt((self.cx - cx) ** 2 + (self.cy - cy) ** 2))
         self.cx = cx
         self.cy = cy
         self.last_seen = time.time()
@@ -63,12 +90,24 @@ class FaceTracker:
     def is_expired(self):
         return (time.time() - self.last_seen) > TRACKER_TIMEOUT
 
+    def is_static_spoof_risk(self):
+        age = time.time() - self.first_seen
+        return age > STATIC_FACE_TIMEOUT and self.movement_total < 20.0
+
+    def should_log_event(self, interval=2.0):
+        now = time.time()
+        if now - self.last_event_time < interval:
+            return False
+        self.last_event_time = now
+        return True
+
 
 # --- Module state ---
 face_trackers: list[FaceTracker] = []
 frame_counter = 0
 _attended_cache = set()
 _attended_cache_time = 0
+_tracker_lock = threading.RLock()
 
 
 def load_db():
@@ -91,7 +130,7 @@ def compute_cosine_distance(vec1, vec2):
 
 def find_best_match(embedding, db):
     distances = []
-    for name, db_embedding in db.items():
+    for name, db_embedding in iter_identity_embeddings(db):
         dist = compute_cosine_distance(embedding, db_embedding)
         distances.append((name, dist))
     distances.sort(key=lambda x: x[1])
@@ -103,24 +142,51 @@ def find_best_match(embedding, db):
         return ("Unknown", 1.0), ("_none_", 1.0)
 
 
+def filter_face_db(db, allowed_keys):
+    """Limit matching candidates to linked students in the selected class."""
+    if allowed_keys is None:
+        return db
+    filtered = {name: embedding for name, embedding in iter_identity_embeddings(db) if name in allowed_keys}
+    if FACE_DB_METADATA_KEY in db:
+        copy_metadata_if_present(db, filtered)
+    return filtered
+
+
+def scale_bbox_to_frame(bbox, scale, frame_shape):
+    """Scale a bbox from resized inference coordinates back to the camera frame."""
+    if scale <= 0:
+        raise ValueError("scale must be positive")
+    frame_h, frame_w = frame_shape[:2]
+    inv_scale = 1.0 / scale
+    x1, y1, x2, y2 = [int(round(value * inv_scale)) for value in bbox]
+    return (
+        max(0, x1),
+        max(0, y1),
+        min(frame_w, x2),
+        min(frame_h, y2),
+    )
+
+
 def _find_nearest_tracker(cx, cy):
     """Find the closest existing tracker to a face center."""
-    best_tracker = None
-    best_dist = float('inf')
-    for tracker in face_trackers:
-        dist = np.sqrt((tracker.cx - cx) ** 2 + (tracker.cy - cy) ** 2)
-        if dist < best_dist:
-            best_dist = dist
-            best_tracker = tracker
-    if best_dist < MATCH_DISTANCE_PX:
-        return best_tracker
+    with _tracker_lock:
+        best_tracker = None
+        best_dist = float('inf')
+        for tracker in face_trackers:
+            dist = np.sqrt((tracker.cx - cx) ** 2 + (tracker.cy - cy) ** 2)
+            if dist < best_dist:
+                best_dist = dist
+                best_tracker = tracker
+        if best_dist < MATCH_DISTANCE_PX:
+            return best_tracker
     return None
 
 
 def _cleanup_trackers():
     """Remove expired trackers."""
     global face_trackers
-    face_trackers = [t for t in face_trackers if not t.is_expired()]
+    with _tracker_lock:
+        face_trackers = [t for t in face_trackers if not t.is_expired()]
 
 
 def _get_attended_set(class_id):
@@ -144,9 +210,18 @@ def get_display_name(db_key):
     return db_key
 
 
-def process_frame(frame, db, class_id=None, deadline_hour=8, deadline_minute=0):
+def process_frame(
+    frame,
+    db,
+    class_id=None,
+    deadline_hour=8,
+    deadline_minute=0,
+    respect_skip=True,
+    frame_scale=None,
+):
     global frame_counter
     frame_counter += 1
+    scale = frame_scale if frame_scale is not None else RECOGNITION_FRAME_SCALE
 
     # Cleanup old trackers
     _cleanup_trackers()
@@ -155,57 +230,58 @@ def process_frame(frame, db, class_id=None, deadline_hour=8, deadline_minute=0):
     attended = _get_attended_set(class_id)
 
     # Skip frames for performance
-    if frame_counter % SKIP_FRAMES != 0:
+    if respect_skip and frame_counter % SKIP_FRAMES != 0:
         # Still draw existing tracker labels
         for tracker in face_trackers:
             if not tracker.is_expired():
                 _draw_label(frame, tracker)
         return frame
 
-    # Resize for faster face detection (reduced from 0.25 to 0.5 for stability)
-    small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    small_frame = cv2.resize(
+        frame,
+        (0, 0),
+        fx=scale,
+        fy=scale,
+    )
 
     try:
-        face_objs = DeepFace.extract_faces(
-            img_path=small_frame,
-            detector_backend="opencv",
-            enforce_detection=False,
-            align=True
-        )
+        face_objs = get_face_model().get_faces(small_frame)
 
         matched_tracker_ids = set()
 
         for face_obj in face_objs:
-            facial_area = face_obj["facial_area"]
-            if facial_area['w'] == 0 or facial_area['h'] == 0:
+            x_small, y_small, x2_small, y2_small = face_obj["bbox"]
+            w_small = x2_small - x_small
+            h_small = y2_small - y_small
+            if w_small <= 0 or h_small <= 0:
                 continue
 
-            face_arr = face_obj["face"]
+            x1, y1, x2, y2 = scale_bbox_to_frame(
+                (x_small, y_small, x2_small, y2_small),
+                scale,
+                frame.shape,
+            )
+            w = x2 - x1
+            h = y2 - y1
+            cx = x1 + w // 2
+            cy = y1 + h // 2
 
-            # Scale back to original frame coords (multiplied by 2 since we resized by 0.5)
-            x = facial_area['x'] * 2
-            y = facial_area['y'] * 2
-            w = facial_area['w'] * 2
-            h = facial_area['h'] * 2
-            cx = x + w // 2
-            cy = y + h // 2
-
-            frame_h, frame_w = frame.shape[:2]
-            x1, y1 = max(0, x), max(0, y)
-            x2, y2 = min(frame_w, x + w), min(frame_h, y + h)
+            if w <= 0 or h <= 0:
+                continue
 
             # Find or create tracker
-            tracker = _find_nearest_tracker(cx, cy)
-            if tracker and tracker.id not in matched_tracker_ids:
-                tracker.update_position(cx, cy)
-                matched_tracker_ids.add(tracker.id)
-            else:
-                tracker = FaceTracker(cx, cy)
-                face_trackers.append(tracker)
-                matched_tracker_ids.add(tracker.id)
+            with _tracker_lock:
+                tracker = _find_nearest_tracker(cx, cy)
+                if tracker and tracker.id not in matched_tracker_ids:
+                    tracker.update_position(cx, cy)
+                    matched_tracker_ids.add(tracker.id)
+                else:
+                    tracker = FaceTracker(cx, cy)
+                    face_trackers.append(tracker)
+                    matched_tracker_ids.add(tracker.id)
 
-            # Store bbox for drawing
-            tracker.bbox = (x1, y1, x2, y2)
+                # Store bbox for drawing
+                tracker.bbox = (x1, y1, x2, y2)
 
             # If already confirmed and attended, just show green label
             if tracker.confirmed_name and tracker.confirmed_name in attended:
@@ -215,23 +291,16 @@ def process_frame(frame, db, class_id=None, deadline_hour=8, deadline_minute=0):
                 _draw_label(frame, tracker)
                 continue
 
-            # Extract embedding
-            face_bgr = cv2.cvtColor((face_arr * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
-            res = DeepFace.represent(
-                img_path=face_bgr,
-                model_name=MODEL_NAME,
-                enforce_detection=False,
-                detector_backend="skip"
-            )
-
-            if res and len(res) > 0:
-                embedding = res[0]["embedding"]
+            embedding = face_obj["embedding"]
+            if embedding is not None:
                 best, second = find_best_match(embedding, db)
                 best_name, best_dist = best
                 _, second_dist = second
                 gap = second_dist - best_dist
 
-                if best_dist < THRESHOLD and gap > CONFIDENCE_GAP:
+                decision = classify_match(best_dist, gap)
+
+                if decision.status == "ACCEPT":
                     tracker.add_vote(best_name)
                     display = get_display_name(best_name)
 
@@ -241,8 +310,22 @@ def process_frame(frame, db, class_id=None, deadline_hour=8, deadline_minute=0):
                         tracker.display_text = f"{display} (PRESENT)"
                         tracker.display_color = (0, 255, 0)
                     else:
-                        tracker.display_text = f"{display} ({best_dist:.2f})"
+                        tracker.display_text = f"{display} ({decision.confidence:.2f})"
                         tracker.display_color = (0, 255, 255)  # Yellow candidate
+                elif decision.status == "NEED_REVIEW":
+                    tracker.add_vote("Unknown")
+                    display = get_display_name(best_name)
+                    tracker.display_text = f"REVIEW {display} ({decision.confidence:.2f})"
+                    tracker.display_color = (0, 165, 255)
+                    if class_id is not None and tracker.should_log_event():
+                        record_recognition_event(
+                            class_id,
+                            best_name,
+                            "NEED_REVIEW",
+                            decision.confidence,
+                            distance=best_dist,
+                            gap=gap,
+                        )
                 else:
                     tracker.add_vote("Unknown")
                     tracker.display_text = "Unknown"
@@ -253,9 +336,17 @@ def process_frame(frame, db, class_id=None, deadline_hour=8, deadline_minute=0):
                 if confirmed and confirmed not in attended:
                     if class_id is not None:
                         logged, status = log_attendance(confirmed, class_id,
-                                                        round(1 - best_dist, 2),
+                                                        decision.confidence,
                                                         deadline_hour, deadline_minute)
                         if logged:
+                            record_recognition_event(
+                                class_id,
+                                confirmed,
+                                "ACCEPT",
+                                decision.confidence,
+                                distance=best_dist,
+                                gap=gap,
+                            )
                             # Update cache
                             _attended_cache.add(confirmed)
                             display = get_display_name(confirmed)
@@ -264,6 +355,10 @@ def process_frame(frame, db, class_id=None, deadline_hour=8, deadline_minute=0):
                             tracker.display_text = f"{display} ({status_label})"
                             tracker.display_color = (0, 255, 0)
                             tracker.vote_buffer.clear()
+
+                if tracker.is_static_spoof_risk():
+                    tracker.display_text = f"{tracker.display_text} | LIVE?"
+                    tracker.display_color = (0, 165, 255)
 
             _draw_label(frame, tracker)
 
@@ -287,14 +382,26 @@ def _draw_label(frame, tracker):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
 
+def draw_tracker_labels(frame):
+    """Draw the latest tracker labels without running detection or recognition."""
+    _cleanup_trackers()
+    with _tracker_lock:
+        trackers = list(face_trackers)
+    for tracker in trackers:
+        if not tracker.is_expired():
+            _draw_label(frame, tracker)
+    return frame
+
+
 def reset_trackers():
     """Reset all tracking state."""
     global face_trackers, frame_counter, _attended_cache, _attended_cache_time
-    face_trackers.clear()
+    with _tracker_lock:
+        face_trackers.clear()
+        FaceTracker._next_id = 0
     frame_counter = 0
     _attended_cache = set()
     _attended_cache_time = 0
-    FaceTracker._next_id = 0
 
 
 def run_recognition():

@@ -1,8 +1,10 @@
 import os
 import cv2
-import numpy as np
-from deepface import DeepFace
+import sys
 from tqdm import tqdm
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from src.face_model import get_face_model
 
 RAW_DIR = "data/raw"
 PROCESSED_DIR = "data/processed"
@@ -29,30 +31,27 @@ def preprocess_images():
         print(f"Processing {len(img_names)} images for {name}...")
 
         valid_count = 0
+        face_model = get_face_model()
         for img_name in tqdm(img_names, desc=name):
             img_path = os.path.join(person_raw_dir, img_name)
             out_path = os.path.join(person_proc_dir, img_name)
 
             try:
-                # Extract faces, align them (target_size is not supported in this DeepFace version)
-                face_objs = DeepFace.extract_faces(
-                    img_path=img_path,
-                    detector_backend="opencv",
-                    enforce_detection=True,
-                    align=True
-                )
-                
+                img_bgr = cv2.imread(img_path)
+                face_objs = face_model.get_faces(img_bgr)
                 if face_objs:
-                    # face_objs is a list. take the first face found.
-                    # face is an RGB array with float32 values [0, 1]
-                    face_arr = face_objs[0]["face"]
-                    face_arr = cv2.resize(face_arr, TARGET_SIZE)
-                    face_bgr = cv2.cvtColor((face_arr * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+                    face = max(face_objs, key=lambda item: item["det_score"])
+                    x1, y1, x2, y2 = face["bbox"]
+                    frame_h, frame_w = img_bgr.shape[:2]
+                    x1, y1 = max(0, x1), max(0, y1)
+                    x2, y2 = min(frame_w, x2), min(frame_h, y2)
+                    if x2 <= x1 or y2 <= y1:
+                        continue
+                    face_bgr = cv2.resize(img_bgr[y1:y2, x1:x2], TARGET_SIZE)
                     cv2.imwrite(out_path, face_bgr)
                     valid_count += 1
 
             except Exception as e:
-                # Face not detected
                 pass
                 
         print(f"Successfully processed {valid_count}/{len(img_names)} for {name}\n")

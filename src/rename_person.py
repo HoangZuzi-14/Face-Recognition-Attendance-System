@@ -3,6 +3,12 @@ import pickle
 import sqlite3
 import argparse
 import shutil
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from app.backup import backup_face_db, backup_sqlite_db
+from app.database import write_audit_log
+from src.face_db import FACE_DB_METADATA_KEY
 
 RAW_DIR = "data/raw"
 PROCESSED_DIR = "data/processed"
@@ -11,6 +17,8 @@ SQL_DB = "app/attendance.db"
 
 def rename_person(old_name, new_name):
     print(f"--- Đang đổi tên từ '{old_name}' sang '{new_name}' ---")
+    backup_face_db(EMBEDDING_DB)
+    backup_sqlite_db(SQL_DB)
 
     # 1. Đổi tên thư mục ảnh
     for base_dir in [RAW_DIR, PROCESSED_DIR]:
@@ -29,6 +37,11 @@ def rename_person(old_name, new_name):
         
         if old_name in db:
             db[new_name] = db.pop(old_name)
+            metadata = db.get(FACE_DB_METADATA_KEY)
+            if isinstance(metadata, dict):
+                identity_models = metadata.get("identity_models")
+                if isinstance(identity_models, dict) and old_name in identity_models:
+                    identity_models[new_name] = identity_models.pop(old_name)
             with open(EMBEDDING_DB, "wb") as f:
                 pickle.dump(db, f)
             print(f"[OK] Đã cập nhật vector nhận diện trong {EMBEDDING_DB}")
@@ -60,6 +73,12 @@ def rename_person(old_name, new_name):
             print(f"[ERR] Lỗi cập nhật database: {e}")
 
     print("\n--- Hoàn tất! ---")
+    write_audit_log(
+        "person.renamed",
+        entity_type="student",
+        entity_id=new_name,
+        details=f"old_key={old_name};new_key={new_name}",
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Đổi tên người trong hệ thống face attendance.")

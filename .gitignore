@@ -27,6 +27,7 @@ ENV/
 
 # Data and Models
 data/
+backups/
 models/*.h5
 models/*.pkl
 models/*.pb
@@ -46,3 +47,4 @@ tmp/
 .gemini/
 notebooks/.ipynb_checkpoints
 config.yaml
+tests/

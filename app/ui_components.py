@@ -14,13 +14,14 @@ def render_navbar():
     st.markdown("""
 <div class="zuzo-nav">
     <div style="display:flex;align-items:center;gap:2rem;">
-        <span class="brand">ZuzoNKT</span>
+        <span class="brand"><span class="brand-mark">✣</span> ZuzoNKT</span>
         <div class="nav-links">
-            <a href="#">Home</a>
-            <a href="#">News</a>
-            <a href="#">Q&A</a>
+            <a href="#">Điểm danh</a>
+            <a href="#">Lớp học</a>
+            <a href="#">Giám sát</a>
         </div>
     </div>
+    <div class="nav-status">Face Attendance</div>
 </div>
 <div style="height:56px;"></div>
 """, unsafe_allow_html=True)
@@ -29,9 +30,10 @@ def render_tabs():
     """Renders the top tabs."""
     st.markdown("""
 <div class="zuzo-tabs">
-    <span class="tab active">Điểm danh</span>
-    <span class="tab">Lịch sử</span>
-    <span class="tab">Thời khóa biểu</span>
+    <span class="tab active">Console</span>
+    <span class="tab">Roster</span>
+    <span class="tab">Recognition</span>
+    <span class="tab">Audit</span>
 </div>
 """, unsafe_allow_html=True)
 
@@ -62,12 +64,14 @@ def render_attendance_html(df):
         "LATE": "badge-late",
         "ABSENT": "badge-absent",
         "UNKNOWN": "badge-unknown",
+        "NEED_REVIEW": "badge-review",
     }
     label_map = {
         "PRESENT": "Present",
         "LATE": "Late",
         "ABSENT": "Absent",
         "UNKNOWN": "Unknown",
+        "NEED_REVIEW": "Review",
     }
 
     rows_list = []

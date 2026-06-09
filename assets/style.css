@@ -1,25 +1,31 @@
-/* ── Google Font ─────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+/* ── Editorial product font stack ─────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* ── Root variables ─────────────────── */
 :root {
-    --primary: #6e0000;
-    --primary-container: #990000;
+    --primary: #cc785c;
+    --primary-container: #a9583e;
     --on-primary: #ffffff;
-    --surface: #fbf9f8;
-    --surface-container: #efeded;
-    --surface-container-low: #f5f3f3;
-    --surface-container-lowest: #ffffff;
-    --on-surface: #1b1c1c;
-    --on-surface-variant: #5b403c;
-    --outline-variant: #e4beb8;
-    --error: #ba1a1a;
-    --secondary-container: #e4e2e1;
+    --surface: #faf9f5;
+    --surface-container: #efe9de;
+    --surface-container-low: #f5f0e8;
+    --surface-container-lowest: #faf9f5;
+    --surface-dark: #181715;
+    --surface-dark-elevated: #252320;
+    --surface-dark-soft: #1f1e1b;
+    --on-surface: #141413;
+    --on-surface-variant: #6c6a64;
+    --outline-variant: #e6dfd8;
+    --error: #c64545;
+    --secondary-container: #e6dfd8;
+    --success: #5db872;
+    --warning: #d4a017;
+    --accent-teal: #5db8a6;
 }
 
 /* ── Global ──────────────────────────── */
 .stApp {
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
     background-color: var(--surface) !important;
 }
 
@@ -30,16 +36,23 @@
 /* ── Top Navbar (injected HTML) ────── */
 .zuzo-nav {
     position: fixed; top: 0; left: 0; right: 0; z-index: 999;
-    background: rgba(251,249,248,0.85);
+    background: rgba(250,249,245,0.92);
     backdrop-filter: blur(20px);
-    border-bottom: 1px solid rgba(228,190,184,0.15);
+    border-bottom: 1px solid var(--outline-variant);
     display: flex; justify-content: space-between; align-items: center;
     padding: 0 2rem; height: 56px;
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: 'Inter', sans-serif;
 }
 .zuzo-nav .brand {
-    font-size: 1.25rem; font-weight: 800; letter-spacing: -0.04em;
-    color: var(--primary);
+    font-size: 1.05rem; font-weight: 700; letter-spacing: 0;
+    color: var(--on-surface);
+    display: inline-flex; align-items: center; gap: 0.45rem;
+}
+.brand-mark { color: var(--primary); font-size: 1.15rem; }
+.nav-status {
+    color: var(--on-surface-variant);
+    font-size: 0.8rem;
+    font-weight: 500;
 }
 .zuzo-nav .nav-links { display: flex; gap: 1.5rem; }
 .zuzo-nav .nav-links a {
@@ -51,9 +64,9 @@
 
 /* ── Page title ──────────────────────── */
 .page-title {
-    font-size: 2rem; font-weight: 800; color: var(--on-surface);
-    letter-spacing: -0.03em; margin: 0 0 0.25rem 0;
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-size: 2.8rem; font-weight: 500; color: var(--on-surface);
+    letter-spacing: -0.02em; margin: 0 0 0.25rem 0;
+    font-family: 'Cormorant Garamond', Georgia, serif;
 }
 
 /* ── Tabs ─────────────────────────────── */
@@ -78,11 +91,11 @@
 /* ── Card ─────────────────────────────── */
 .zuzo-card {
     background: var(--surface-container-lowest);
-    border-radius: 1rem; overflow: hidden;
-    border: 1px solid rgba(228,190,184,0.1);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    border-radius: 12px; overflow: hidden;
+    border: 1px solid var(--outline-variant);
+    box-shadow: none;
     padding: 1.5rem;
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: 'Inter', sans-serif;
 }
 
 /* ── Webcam area ─────────────────────── */
@@ -371,20 +384,58 @@ div[data-testid="stExpander"] {
 
 /* ── Right side buttons mockup ── */
 div[data-testid="column"] button:has(div:contains("Export CSV")) {
-    background-color: white !important;
-    color: #1b1c1c !important;
-    border: 1px solid #e4e2e1 !important;
+    background-color: var(--surface) !important;
+    color: var(--on-surface) !important;
+    border: 1px solid var(--outline-variant) !important;
 }
 div[data-testid="column"] button:has(div:contains("Xoá bảng")) {
-    background-color: white !important;
-    color: #ba1a1a !important;
-    border: 1px solid rgba(186,26,26,0.2) !important;
+    background-color: rgba(198, 69, 69, 0.04) !important;
+    color: var(--error) !important;
+    border: 1px solid rgba(198, 69, 69, 0.15) !important;
+}
+div[data-testid="column"] button:has(div:contains("Xoá bảng")):hover {
+    background-color: rgba(198, 69, 69, 0.08) !important;
+    border-color: var(--error) !important;
+}
+
+/* Streamlit text input, number input, time input, and selectbox style overrides */
+div[data-baseweb="select"] {
+    background-color: var(--surface) !important;
+    border-radius: 8px !important;
+}
+div[data-baseweb="select"] > div {
+    background-color: var(--surface) !important;
+    border: 1px solid var(--outline-variant) !important;
+    border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
+    color: var(--on-surface) !important;
+}
+div[data-baseweb="select"]:focus-within > div {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.15) !important;
+}
+
+div[data-baseweb="input"] input {
+    background-color: var(--surface) !important;
+    border: 1px solid var(--outline-variant) !important;
+    border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
+    color: var(--on-surface) !important;
+}
+div[data-baseweb="input"] input:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.15) !important;
+}
+
+/* Beautiful custom font overrides for all labels and captions */
+.stApp label, .stApp caption, .stApp p, .stApp div, .stApp span {
+    font-family: 'Inter', sans-serif !important;
 }
 
 .table-footer-link {
     display: block;
     text-align: center;
-    color: #6e0000;
+    color: var(--primary);
     font-weight: 700;
     font-size: 0.85rem;
     margin-top: 2rem;
@@ -393,5 +444,110 @@ div[data-testid="column"] button:has(div:contains("Xoá bảng")) {
 }
 .table-footer-link:hover {
     text-decoration: underline;
+    color: var(--primary-container);
 }
 
+/* ── Claude-inspired attendance console redesign ───────── */
+.console-hero {
+    background: var(--surface-dark);
+    color: var(--on-primary);
+    border-radius: 12px;
+    padding: 28px;
+    margin-bottom: 18px;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+.console-topline {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #a09d96;
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.anthropic-mark { color: var(--primary); font-size: 1.15rem; }
+.console-state {
+    margin-left: auto;
+    border-radius: 999px;
+    padding: 4px 10px;
+    background: var(--surface-dark-elevated);
+    color: #faf9f5;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+}
+.console-live .console-state { background: rgba(93,184,114,0.18); color: #9be3ac; }
+.console-registering .console-state { background: rgba(232,165,90,0.18); color: #f3bd76; }
+.console-title {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: 2.2rem;
+    line-height: 1.05;
+    margin-top: 18px;
+    letter-spacing: -0.02em;
+}
+.console-copy {
+    color: #c6c1b8;
+    max-width: 680px;
+    margin-top: 8px;
+    font-size: 0.95rem;
+    line-height: 1.55;
+}
+
+/* Streamlit controls as operational product UI */
+.stButton > button, .stDownloadButton > button {
+    border-radius: 8px !important;
+    min-height: 40px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    border: 1px solid var(--outline-variant) !important;
+    background: var(--surface) !important;
+    color: var(--on-surface) !important;
+}
+.cam-btns-row .stButton > button {
+    background: var(--primary) !important;
+    color: var(--on-primary) !important;
+    border-color: var(--primary) !important;
+    font-size: 0.95rem !important;
+}
+.cam-btns-row .stButton > button:hover {
+    background: var(--primary-container) !important;
+    border-color: var(--primary-container) !important;
+}
+.stButton > button:disabled, .stDownloadButton > button:disabled {
+    background: var(--secondary-container) !important;
+    color: var(--on-surface-variant) !important;
+    border-color: var(--outline-variant) !important;
+}
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    border-bottom: 1px solid var(--outline-variant);
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 8px 8px 0 0;
+    padding: 8px 14px;
+    color: var(--on-surface-variant);
+}
+.stTabs [aria-selected="true"] {
+    background: var(--surface-container);
+    color: var(--on-surface) !important;
+}
+div[data-testid="stExpander"] {
+    background: var(--surface-container-lowest);
+    border-radius: 12px !important;
+    border: 1px solid var(--outline-variant) !important;
+}
+[data-testid="stImage"] img {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--surface-dark-elevated);
+    background: var(--surface-dark);
+}
+.badge-review { background: #fff0d8; color: #a15c00; }
+.dot-review { background: var(--warning); }
+
+@media (max-width: 900px) {
+    .zuzo-nav .nav-links { display: none; }
+    .page-title { font-size: 2.1rem; }
+    .console-hero { padding: 22px; }
+    .console-title { font-size: 1.8rem; }
+}

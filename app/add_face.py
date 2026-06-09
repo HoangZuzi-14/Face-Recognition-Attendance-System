@@ -8,12 +8,23 @@ import os
 import cv2
 import numpy as np
 import pickle
-from deepface import DeepFace
+from dataclasses import dataclass
+from app.backup import backup_face_db
+from src.face_db import EMBEDDING_MODEL_ID, set_identity_embedding
+from src.face_model import get_face_model
 
 RAW_DIR = "data/raw"
 PROCESSED_DIR = "data/processed"
 DB_PATH = "data/embeddings/db.pkl"
 TARGET_SIZE = (112, 112)
+
+
+@dataclass
+class FaceRegistrationResult:
+    ok: bool
+    stage: str
+    message: str
+    valid_images: int = 0
 
 
 def save_captured_frame(person_key, frame, index):
@@ -43,16 +54,17 @@ def preprocess_person(person_key):
         img_path = os.path.join(person_raw_dir, img_name)
         out_path = os.path.join(person_proc_dir, img_name)
         try:
-            face_objs = DeepFace.extract_faces(
-                img_path=img_path,
-                detector_backend="opencv",
-                enforce_detection=True,
-                align=True
-            )
+            img_bgr = cv2.imread(img_path)
+            face_objs = get_face_model().get_faces(img_bgr)
             if face_objs:
-                face_arr = face_objs[0]["face"]
-                face_arr = cv2.resize(face_arr, TARGET_SIZE)
-                face_bgr = cv2.cvtColor((face_arr * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+                face = max(face_objs, key=lambda item: item["det_score"])
+                x1, y1, x2, y2 = face["bbox"]
+                frame_h, frame_w = img_bgr.shape[:2]
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(frame_w, x2), min(frame_h, y2)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                face_bgr = cv2.resize(img_bgr[y1:y2, x1:x2], TARGET_SIZE)
                 cv2.imwrite(out_path, face_bgr)
                 valid_count += 1
         except Exception:
@@ -78,14 +90,10 @@ def extract_and_merge_embedding(person_key):
     for img_name in img_names:
         img_path = os.path.join(person_proc_dir, img_name)
         try:
-            res = DeepFace.represent(
-                img_path=img_path,
-                model_name="ArcFace",
-                detector_backend="skip",
-                enforce_detection=False
-            )
-            if res and len(res) > 0:
-                embeddings.append(res[0]["embedding"])
+            img_bgr = cv2.imread(img_path)
+            embedding = get_face_model().get_embedding(img_bgr)
+            if embedding is not None:
+                embeddings.append(embedding)
         except Exception:
             pass
 
@@ -102,12 +110,46 @@ def extract_and_merge_embedding(person_key):
     else:
         db = {}
 
-    db[person_key] = avg_embedding
+    set_identity_embedding(db, person_key, avg_embedding)
 
+    backup_face_db(DB_PATH)
     with open(DB_PATH, "wb") as f:
         pickle.dump(db, f)
 
     return True
+
+
+def finalize_face_registration(person_key):
+    """Preprocess captured images, extract embeddings, and return a user-facing result."""
+    valid = preprocess_person(person_key)
+    if valid <= 0:
+        return FaceRegistrationResult(
+            ok=False,
+            stage="preprocess",
+            valid_images=valid,
+            message=(
+                "Khong co anh hop le sau buoc cat/can chinh khuon mat. "
+                "Hay chup lai voi anh sang tot hon, nhin thang camera va chi co mot nguoi trong khung hinh."
+            ),
+        )
+
+    if not extract_and_merge_embedding(person_key):
+        return FaceRegistrationResult(
+            ok=False,
+            stage="embedding",
+            valid_images=valid,
+            message=(
+                f"Da xu ly {valid} anh nhung khong trich xuat duoc embedding. "
+                f"Hay chup them anh ro hon hoac kiem tra lai model {EMBEDDING_MODEL_ID}."
+            ),
+        )
+
+    return FaceRegistrationResult(
+        ok=True,
+        stage="complete",
+        valid_images=valid,
+        message=f"Da dang ky khuon mat thanh cong voi {valid} anh hop le.",
+    )
 
 
 def get_existing_count(person_key):
