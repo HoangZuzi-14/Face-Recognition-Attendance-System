@@ -6,8 +6,9 @@ import shutil
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.backup import backup_face_db, backup_sqlite_db
+from app.backup import backup_sqlite_db
 from app.database import write_audit_log
+from src.embedding_store import save_embeddings_safely
 from src.face_db import FACE_DB_METADATA_KEY
 
 RAW_DIR = "data/raw"
@@ -17,7 +18,6 @@ SQL_DB = "app/attendance.db"
 
 def rename_person(old_name, new_name):
     print(f"--- Đang đổi tên từ '{old_name}' sang '{new_name}' ---")
-    backup_face_db(EMBEDDING_DB)
     backup_sqlite_db(SQL_DB)
 
     # 1. Đổi tên thư mục ảnh
@@ -42,9 +42,16 @@ def rename_person(old_name, new_name):
                 identity_models = metadata.get("identity_models")
                 if isinstance(identity_models, dict) and old_name in identity_models:
                     identity_models[new_name] = identity_models.pop(old_name)
-            with open(EMBEDDING_DB, "wb") as f:
-                pickle.dump(db, f)
-            print(f"[OK] Đã cập nhật vector nhận diện trong {EMBEDDING_DB}")
+            result = save_embeddings_safely(
+                db,
+                face_db_path=EMBEDDING_DB,
+                required_keys={new_name},
+            )
+            if result["ok"]:
+                print(f"[OK] Đã cập nhật vector nhận diện trong {EMBEDDING_DB}")
+            else:
+                print(f"[ERR] Safe embedding save failed: {result['errors']}")
+                return
         else:
             print(f"[!] Không tìm thấy '{old_name}' trong file embeddings.")
 

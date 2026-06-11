@@ -186,12 +186,32 @@ class AttendanceRepository:
             entity_id=str(class_id) if class_id else None,
         )
 
-    def record_recognition_event(self, class_id, student_db_key, decision,
-                                  confidence, distance=None, gap=None, session_id=None):
+    def record_recognition_event(
+        self,
+        class_id,
+        student_db_key,
+        decision,
+        confidence,
+        distance=None,
+        gap=None,
+        session_id=None,
+        liveness_score=None,
+        liveness_label=None,
+        attack_type=None,
+        liveness_reasons=None,
+        recognition_score=None,
+    ):
         """Record a recognition event for analytics."""
         record_recognition_event(
             class_id, student_db_key, decision, confidence,
-            distance=distance, gap=gap, session_id=session_id,
+            distance=distance,
+            gap=gap,
+            session_id=session_id,
+            liveness_score=liveness_score,
+            liveness_label=liveness_label,
+            attack_type=attack_type,
+            liveness_reasons=liveness_reasons,
+            recognition_score=recognition_score,
         )
 
     def get_recognition_stats(self, class_id=None, limit=50):

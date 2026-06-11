@@ -56,17 +56,55 @@ def _open_capture(cv2, camera_index, profile):
     return cap
 
 
-def _put_hud(cv2, frame, recognition_running=False, last_model_ms=0.0):
+def _format_score(value):
+    if value is None:
+        return "--"
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return "--"
+
+
+def _format_hud_lines(
+    recognition_running=False,
+    last_model_ms=0.0,
+    tracker_snapshot=None,
+):
     status = "REC..." if recognition_running else "LIVE"
-    cv2.putText(
-        frame,
-        f"{status} | model {last_model_ms:.0f} ms | Q/ESC: close",
-        (12, 28),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.7,
-        (255, 255, 0),
-        2,
-    )
+    lines = [f"{status} | model {last_model_ms:.0f} ms | Q/ESC: close"]
+    if not tracker_snapshot:
+        lines.append("id -- | rec --")
+        lines.append("liveness UNKNOWN | live --")
+        return lines
+
+    identity = tracker_snapshot.get("identity") or "Unknown"
+    recognition_score = _format_score(tracker_snapshot.get("recognition_score"))
+    liveness_label = tracker_snapshot.get("liveness_label") or "UNKNOWN"
+    liveness_score = _format_score(tracker_snapshot.get("liveness_score"))
+    liveness_reason = tracker_snapshot.get("liveness_reason") or ""
+    lines.append(f"id {identity} | rec {recognition_score}")
+    lines.append(f"liveness {liveness_label} | live {liveness_score} | {liveness_reason}".rstrip())
+    return lines
+
+
+def _put_hud(cv2, frame, recognition_running=False, last_model_ms=0.0, tracker_snapshot=None):
+    lines = _format_hud_lines(recognition_running, last_model_ms, tracker_snapshot)
+    warning = tracker_snapshot and tracker_snapshot.get("liveness_label") == "SPOOF"
+    for idx, line in enumerate(lines):
+        y = 28 + idx * 28
+        if idx == 2 and warning:
+            color = (0, 0, 255)
+        else:
+            color = (255, 255, 0)
+        cv2.putText(
+            frame,
+            line,
+            (12, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            color,
+            2,
+        )
 
 
 def _build_active_db(db, class_id):
@@ -87,7 +125,13 @@ def run_native_camera(
 ):
     import cv2
 
-    from src.recognize import draw_tracker_labels, load_db, process_frame, reset_trackers
+    from src.recognize import (
+        draw_tracker_labels,
+        get_tracker_hud_snapshot,
+        load_db,
+        process_frame,
+        reset_trackers,
+    )
 
     db = load_db()
     if db is None:
@@ -161,7 +205,13 @@ def run_native_camera(
                     recog_thread.start()
 
             display_frame = draw_tracker_labels(frame)
-            _put_hud(cv2, display_frame, recognition_running, last_model_ms)
+            _put_hud(
+                cv2,
+                display_frame,
+                recognition_running,
+                last_model_ms,
+                get_tracker_hud_snapshot(),
+            )
             cv2.imshow(WINDOW_NAME, display_frame)
 
             key = cv2.waitKey(1) & 0xFF

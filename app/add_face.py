@@ -7,10 +7,9 @@ preprocess them, extract embeddings, and merge into db.pkl.
 import os
 import cv2
 import numpy as np
-import pickle
 from dataclasses import dataclass
-from app.backup import backup_face_db
 from src.face_db import EMBEDDING_MODEL_ID, set_identity_embedding
+from src.embedding_store import load_embeddings, save_embeddings_safely
 from src.face_model import get_face_model
 
 RAW_DIR = "data/raw"
@@ -87,15 +86,33 @@ def extract_and_merge_embedding(person_key):
         return False
 
     embeddings = []
+    face_model = get_face_model()
     for img_name in img_names:
         img_path = os.path.join(person_proc_dir, img_name)
         try:
             img_bgr = cv2.imread(img_path)
-            embedding = get_face_model().get_embedding(img_bgr)
+            embedding = face_model.get_embedding(img_bgr)
             if embedding is not None:
                 embeddings.append(embedding)
         except Exception:
             pass
+
+    if not embeddings:
+        person_raw_dir = os.path.join(RAW_DIR, person_key)
+        if os.path.exists(person_raw_dir):
+            raw_img_names = [
+                f for f in os.listdir(person_raw_dir)
+                if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+            ]
+            for img_name in raw_img_names:
+                img_path = os.path.join(person_raw_dir, img_name)
+                try:
+                    img_bgr = cv2.imread(img_path)
+                    embedding = face_model.get_embedding(img_bgr)
+                    if embedding is not None:
+                        embeddings.append(embedding)
+                except Exception:
+                    pass
 
     if not embeddings:
         return False
@@ -104,19 +121,12 @@ def extract_and_merge_embedding(person_key):
 
     # Load existing database or create new
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, "rb") as f:
-            db = pickle.load(f)
-    else:
-        db = {}
+    db = load_embeddings(face_db_path=DB_PATH, prefer_sqlite=False) or {}
 
     set_identity_embedding(db, person_key, avg_embedding)
 
-    backup_face_db(DB_PATH)
-    with open(DB_PATH, "wb") as f:
-        pickle.dump(db, f)
-
-    return True
+    result = save_embeddings_safely(db, face_db_path=DB_PATH, required_keys={person_key})
+    return bool(result["ok"])
 
 
 def finalize_face_registration(person_key):

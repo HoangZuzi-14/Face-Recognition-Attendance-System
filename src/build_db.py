@@ -1,13 +1,12 @@
 import os
-import pickle
 import sys
 import numpy as np
 import cv2
 from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.backup import backup_face_db
 from app.database import write_audit_log
+from src.embedding_store import save_embeddings_safely
 from src.face_db import EMBEDDING_MODEL_ID, identity_count, set_identity_embedding
 from src.face_model import get_face_model
 
@@ -55,9 +54,10 @@ def build_database():
         else:
             print(f"  Failed to extract embeddings for {name}.")
 
-    backup_face_db(DB_PATH)
-    with open(DB_PATH, "wb") as f:
-        pickle.dump(db, f)
+    result = save_embeddings_safely(db, face_db_path=DB_PATH)
+    if not result["ok"]:
+        print(f"Failed to save database safely: {result['errors']}")
+        return
 
     print(f"\nDatabase built successfully with {identity_count(db)} identities!")
     print(f"Saved at {DB_PATH}")

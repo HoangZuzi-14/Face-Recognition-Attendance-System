@@ -15,7 +15,6 @@ No need to rebuild the entire database!
 
 import os
 import sys
-import pickle
 import argparse
 
 import cv2
@@ -23,7 +22,7 @@ import numpy as np
 from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.backup import backup_face_db
+from src.embedding_store import load_embeddings, save_embeddings_safely
 from src.face_db import EMBEDDING_MODEL_ID, identity_count, set_identity_embedding
 from src.face_model import get_face_model
 
@@ -185,8 +184,7 @@ def add_to_database(person_name):
     # Load existing database (or create new)
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     if os.path.exists(DB_PATH):
-        with open(DB_PATH, "rb") as f:
-            db = pickle.load(f)
+        db = load_embeddings(face_db_path=DB_PATH, prefer_sqlite=False)
         print(f"   Loaded existing database with {identity_count(db)} identities.")
     else:
         db = {}
@@ -195,9 +193,10 @@ def add_to_database(person_name):
     action = "Updated" if person_name in db else "Added"
     set_identity_embedding(db, person_name, avg_embedding)
 
-    backup_face_db(DB_PATH)
-    with open(DB_PATH, "wb") as f:
-        pickle.dump(db, f)
+    result = save_embeddings_safely(db, face_db_path=DB_PATH, required_keys={person_name})
+    if not result["ok"]:
+        print(f"ERROR: Safe embedding save failed: {result['errors']}")
+        return False
 
     print(f"  {action} '{person_name}' in database! ({len(embeddings)} valid embeddings)")
     print(f"   Database now has {identity_count(db)} identities.")

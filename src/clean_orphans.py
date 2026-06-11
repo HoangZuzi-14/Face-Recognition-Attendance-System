@@ -12,8 +12,8 @@ import sqlite3
 import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from app.backup import backup_face_db
 from app.database import write_audit_log
+from src.embedding_store import save_embeddings_safely
 from src.face_db import FACE_DB_METADATA_KEY, identity_count
 
 FACE_DB_PATH = "data/embeddings/db.pkl"
@@ -64,16 +64,16 @@ def clean_orphans(dry_run=True, max_display=20):
         print(f"\n[DRY RUN] Không xóa gì. Chạy với --clean để xóa {len(orphan_keys)} keys.")
         return len(orphan_keys)
 
-    # Backup trước khi xóa
-    backup_path = backup_face_db(FACE_DB_PATH)
-    print(f"\n[BACKUP] Đã backup db.pkl tại: {backup_path}")
-
     # Xóa orphan keys
     for key in orphan_keys:
         del db[key]
 
-    with open(FACE_DB_PATH, "wb") as f:
-        pickle.dump(db, f)
+    result = save_embeddings_safely(db, face_db_path=FACE_DB_PATH)
+    if not result["ok"]:
+        print(f"[ERR] Safe embedding save failed: {result['errors']}")
+        return 0
+
+    print(f"\n[BACKUP] Đã backup db.pkl tại: {result['backup_path']}")
 
     print(f"[OK] Đã xóa {len(orphan_keys)} orphan keys. db.pkl còn {identity_count(db)} entries.")
     write_audit_log(

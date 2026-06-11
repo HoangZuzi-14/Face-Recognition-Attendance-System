@@ -44,7 +44,7 @@ models/*.pb
 
 # Project specific
 tmp/
+logs/*.log
 .gemini/
 notebooks/.ipynb_checkpoints
 config.yaml
-tests/

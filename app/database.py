@@ -2,6 +2,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime, time
 import os
+import json
 from app.backup import backup_sqlite_db
 
 DB_PATH = "app/attendance.db"
@@ -65,6 +66,17 @@ def init_db():
             mssv TEXT UNIQUE,
             full_name TEXT,
             db_key TEXT DEFAULT NULL
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            is_active INTEGER DEFAULT 1
         )
     ''')
 
@@ -151,7 +163,18 @@ def init_db():
     _ensure_column(c, "attendance", "session_id", "INTEGER")
     _ensure_column(c, "attendance", "student_id", "INTEGER")
     _ensure_column(c, "attendance", "review_reason", "TEXT")
+    _ensure_column(c, "audit_logs", "actor_user_id", "INTEGER")
+    _ensure_column(c, "audit_logs", "actor_username", "TEXT")
+    _ensure_column(c, "audit_logs", "target", "TEXT")
+    _ensure_column(c, "audit_logs", "timestamp", "TEXT")
+    _ensure_column(c, "audit_logs", "status", "TEXT DEFAULT 'SUCCESS'")
+    _ensure_column(c, "recognition_events", "liveness_score", "REAL")
+    _ensure_column(c, "recognition_events", "liveness_label", "TEXT")
+    _ensure_column(c, "recognition_events", "attack_type", "TEXT")
+    _ensure_column(c, "recognition_events", "liveness_reasons", "TEXT")
+    _ensure_column(c, "recognition_events", "recognition_score", "REAL")
 
+    _seed_initial_admin(conn)
     conn.commit()
     _sync_face_identities(conn)
     conn.close()
@@ -162,6 +185,28 @@ def _ensure_column(cursor, table_name, column_name, column_type):
     columns = {row[1] for row in cursor.fetchall()}
     if column_name not in columns:
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
+
+def _seed_initial_admin(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    if cursor.fetchone()[0] > 0:
+        return
+
+    from app.auth import ROLE_ADMIN, hash_password
+
+    username = os.environ.get("ATTENDANCE_ADMIN_USERNAME", "admin").strip() or "admin"
+    password = os.environ.get("ATTENDANCE_ADMIN_PASSWORD", "admin123").strip()
+    if not password:
+        password = "admin123"
+
+    cursor.execute(
+        """
+        INSERT INTO users (username, password_hash, role, created_at, is_active)
+        VALUES (?, ?, ?, ?, 1)
+        """,
+        (username, hash_password(password), ROLE_ADMIN, datetime.now().isoformat()),
+    )
 
 
 def _sync_face_identities(conn):
@@ -182,15 +227,67 @@ def _sync_face_identities(conn):
     conn.commit()
 
 
-def write_audit_log(action, entity_type=None, entity_id=None, actor="system", details=None):
+def _audit_target(entity_type=None, entity_id=None, target=None):
+    if target:
+        return str(target)
+    if entity_type and entity_id is not None:
+        return f"{entity_type}:{entity_id}"
+    if entity_type:
+        return str(entity_type)
+    if entity_id is not None:
+        return str(entity_id)
+    return None
+
+
+def _resolve_audit_actor(actor, actor_user_id, actor_username):
+    if actor_user_id is None and actor_username is None and actor in (None, "system"):
+        from app.audit_context import get_current_actor
+
+        actor_user_id, actor_username = get_current_actor()
+    if actor_username is None:
+        actor_username = actor or "system"
+    return actor_user_id, actor_username, actor_username
+
+
+def write_audit_log(
+    action,
+    entity_type=None,
+    entity_id=None,
+    actor="system",
+    details=None,
+    actor_user_id=None,
+    actor_username=None,
+    target=None,
+    status="SUCCESS",
+):
     conn = get_connection()
     c = conn.cursor()
+    timestamp = datetime.now().isoformat()
+    actor_user_id, actor_username, legacy_actor = _resolve_audit_actor(
+        actor, actor_user_id, actor_username
+    )
+    target = _audit_target(entity_type, entity_id, target)
     c.execute(
         """
-        INSERT INTO audit_logs (action, entity_type, entity_id, actor, details, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO audit_logs (
+            action, entity_type, entity_id, actor, details, created_at,
+            actor_user_id, actor_username, target, timestamp, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (action, entity_type, entity_id, actor, details, datetime.now().isoformat()),
+        (
+            action,
+            entity_type,
+            entity_id,
+            legacy_actor,
+            details,
+            timestamp,
+            actor_user_id,
+            actor_username,
+            target,
+            timestamp,
+            status,
+        ),
     )
     conn.commit()
     conn.close()
@@ -630,18 +727,29 @@ def record_recognition_event(
     distance=None,
     gap=None,
     session_id=None,
+    liveness_score=None,
+    liveness_label=None,
+    attack_type=None,
+    liveness_reasons=None,
+    recognition_score=None,
 ):
     if session_id is None and class_id is not None:
         session_id = get_or_create_attendance_session(class_id)
+    if isinstance(liveness_reasons, (list, tuple)):
+        liveness_reasons = json.dumps(list(liveness_reasons), ensure_ascii=True)
+    if recognition_score is None:
+        recognition_score = confidence
     conn = get_connection()
     c = conn.cursor()
     c.execute(
         """
         INSERT INTO recognition_events (
             class_id, session_id, student_db_key, decision,
-            confidence, distance, gap, created_at
+            confidence, distance, gap, created_at,
+            liveness_score, liveness_label, attack_type,
+            liveness_reasons, recognition_score
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             class_id,
@@ -652,6 +760,11 @@ def record_recognition_event(
             distance,
             gap,
             datetime.now().isoformat(),
+            liveness_score,
+            liveness_label,
+            attack_type,
+            liveness_reasons,
+            recognition_score,
         ),
     )
     conn.commit()
@@ -687,7 +800,18 @@ def get_recent_audit_logs(limit=20):
     conn = get_connection()
     df = pd.read_sql_query(
         """
-        SELECT created_at, action, entity_type, entity_id, actor, details
+        SELECT
+            COALESCE(timestamp, created_at) AS timestamp,
+            created_at,
+            action,
+            target,
+            entity_type,
+            entity_id,
+            actor_user_id,
+            actor_username,
+            actor,
+            status,
+            details
         FROM audit_logs
         ORDER BY id DESC
         LIMIT ?

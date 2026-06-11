@@ -1,5 +1,4 @@
 import cv2
-import pickle
 import numpy as np
 import os
 import sys
@@ -12,14 +11,32 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from app.config import (
     RECOGNITION_THRESHOLD, REVIEW_THRESHOLD, CONFIDENCE_GAP,
     VOTE_WINDOW, VOTE_RATIO, SKIP_FRAMES, TRACKER_TIMEOUT, MATCH_DISTANCE_PX,
-    STATIC_FACE_TIMEOUT, RECOGNITION_FRAME_SCALE,
+    STATIC_FACE_TIMEOUT, RECOGNITION_FRAME_SCALE, LIVENESS_ENABLED,
+    RPPG_ENABLED, RPPG_WINDOW,
 )
 from app.database import (
     log_attendance, get_attended_today_for_class, get_student_by_db_key,
     record_recognition_event,
 )
+from src.embedding_store import load_embeddings
 from src.face_db import FACE_DB_METADATA_KEY, copy_metadata_if_present, iter_identity_embeddings
 from src.face_model import get_face_model
+from src.fusion import (
+    DECISION_ACCEPT,
+    DECISION_CHALLENGE_REQUIRED,
+    DECISION_REJECT_SPOOF,
+    DECISION_REJECT_UNKNOWN,
+    fuse_decision,
+)
+from src.liveness import (
+    LIVENESS_CHALLENGE,
+    LIVENESS_LIVE,
+    LIVENESS_SPOOF,
+    LIVENESS_UNKNOWN,
+    LivenessResult,
+    assess_liveness,
+)
+from src.rppg import RppgFrameBuffer, RppgResult, estimate_pulse_from_buffer
 
 DB_PATH = "data/embeddings/db.pkl"
 
@@ -29,6 +46,14 @@ class MatchDecision:
     status: str
     confidence: float
     reason: str
+
+
+@dataclass(frozen=True)
+class LivenessGateDecision:
+    allowed: bool
+    decision: str
+    result: LivenessResult
+    short_reason: str
 
 
 def confidence_from_distance(distance):
@@ -42,6 +67,87 @@ def classify_match(best_dist, gap):
     if best_dist < REVIEW_THRESHOLD:
         return MatchDecision("NEED_REVIEW", confidence, "low_confidence_or_small_gap")
     return MatchDecision("UNKNOWN", confidence, "distance_above_review_threshold")
+
+
+def evaluate_liveness_gate(
+    frame,
+    face_bbox,
+    landmarks=None,
+    enabled=None,
+    assessor=assess_liveness,
+    rppg_result=None,
+):
+    if enabled is None:
+        enabled = LIVENESS_ENABLED
+    if not enabled:
+        result = LivenessResult(
+            score=1.0,
+            label="DISABLED",
+            reasons=["liveness_disabled"],
+            details={},
+        )
+        return LivenessGateDecision(True, "ACCEPT", result, "liveness_disabled")
+
+    try:
+        result = assessor(
+            frame,
+            landmarks=landmarks,
+            face_bbox=face_bbox,
+            rppg_result=rppg_result,
+        )
+    except TypeError:
+        result = assessor(frame, landmarks=landmarks, face_bbox=face_bbox)
+    short_reason = result.reasons[0] if result.reasons else ""
+    label = str(result.label).upper()
+    pad_score = None
+    rppg_confidence = None
+    if isinstance(result.details, dict):
+        pad_score = (result.details.get("pad") or {}).get("live_score")
+        rppg_confidence = (result.details.get("rppg") or {}).get("pulse_confidence")
+    if label == LIVENESS_CHALLENGE:
+        fusion = fuse_decision(
+            recognition_score=1.0,
+            recognition_matched=True,
+            liveness_score=result.score,
+            pad_score=pad_score,
+            challenge_result="required",
+            rppg_confidence=rppg_confidence,
+        )
+    elif label == LIVENESS_UNKNOWN:
+        fusion = fuse_decision(
+            recognition_score=0.0,
+            recognition_matched=False,
+            liveness_score=result.score,
+            pad_score=pad_score,
+            rppg_confidence=rppg_confidence,
+        )
+    else:
+        fusion = fuse_decision(
+            recognition_score=1.0,
+            recognition_matched=True,
+            liveness_score=result.score,
+            pad_score=pad_score,
+            rppg_confidence=rppg_confidence,
+        )
+    if label == LIVENESS_SPOOF and fusion.decision == DECISION_ACCEPT:
+        fusion_decision = DECISION_REJECT_SPOOF
+    else:
+        fusion_decision = fusion.decision
+    allowed = fusion_decision == DECISION_ACCEPT
+    if fusion_decision not in {
+        DECISION_ACCEPT,
+        DECISION_REJECT_SPOOF,
+        DECISION_REJECT_UNKNOWN,
+        DECISION_CHALLENGE_REQUIRED,
+    }:
+        fusion_decision = DECISION_REJECT_UNKNOWN
+    return LivenessGateDecision(allowed, fusion_decision, result, short_reason)
+
+
+def _liveness_suffix(gate):
+    if gate is None or gate.result.label == "DISABLED":
+        return ""
+    return f" | {gate.result.label} {gate.result.score:.2f} {gate.short_reason}".rstrip()
 
 
 class FaceTracker:
@@ -62,6 +168,12 @@ class FaceTracker:
         self.last_event_time = 0.0
         self.display_text = "..."
         self.display_color = (0, 255, 255)  # Yellow default
+        self.match_identity = None
+        self.recognition_score = None
+        self.liveness_label = "UNKNOWN"
+        self.liveness_score = None
+        self.liveness_reason = ""
+        self.rppg_buffer = RppgFrameBuffer(RPPG_WINDOW)
 
     def update_position(self, cx, cy):
         self.movement_total += float(np.sqrt((self.cx - cx) ** 2 + (self.cy - cy) ** 2))
@@ -111,10 +223,7 @@ _tracker_lock = threading.RLock()
 
 
 def load_db():
-    if not os.path.exists(DB_PATH):
-        return None
-    with open(DB_PATH, "rb") as f:
-        return pickle.load(f)
+    return load_embeddings(face_db_path=DB_PATH, sqlite_db_path="app/attendance.db", prefer_sqlite=True)
 
 
 def reload_db():
@@ -210,6 +319,51 @@ def get_display_name(db_key):
     return db_key
 
 
+def _update_tracker_match(tracker, identity, recognition_score, gate=None):
+    tracker.match_identity = identity
+    tracker.recognition_score = recognition_score
+    if gate is None:
+        tracker.liveness_label = "UNKNOWN"
+        tracker.liveness_score = None
+        tracker.liveness_reason = ""
+        return
+    tracker.liveness_label = gate.result.label
+    tracker.liveness_score = gate.result.score
+    tracker.liveness_reason = gate.short_reason
+
+
+def _record_liveness_event(class_id, best_name, gate, decision, best_dist, gap):
+    attack_type = "presentation_attack" if gate.result.label == LIVENESS_SPOOF else None
+    record_recognition_event(
+        class_id,
+        best_name,
+        gate.decision,
+        decision.confidence,
+        distance=best_dist,
+        gap=gap,
+        liveness_score=gate.result.score,
+        liveness_label=gate.result.label,
+        attack_type=attack_type,
+        liveness_reasons=gate.result.reasons,
+        recognition_score=decision.confidence,
+    )
+
+
+def _update_rppg_result(tracker, frame, face_bbox):
+    if not RPPG_ENABLED:
+        return None
+    try:
+        tracker.rppg_buffer.add_frame(frame, face_bbox, timestamp=time.time())
+        return estimate_pulse_from_buffer(tracker.rppg_buffer)
+    except Exception as exc:
+        return RppgResult(
+            label="UNKNOWN",
+            pulse_confidence=0.0,
+            reasons=["rppg_error"],
+            details={"error": str(exc)},
+        )
+
+
 def process_frame(
     frame,
     db,
@@ -299,22 +453,67 @@ def process_frame(
                 gap = second_dist - best_dist
 
                 decision = classify_match(best_dist, gap)
+                liveness_gate = None
 
                 if decision.status == "ACCEPT":
-                    tracker.add_vote(best_name)
                     display = get_display_name(best_name)
+                    rppg_result = _update_rppg_result(
+                        tracker,
+                        frame,
+                        (x1, y1, x2, y2),
+                    )
+                    liveness_gate = evaluate_liveness_gate(
+                        frame,
+                        face_bbox=(x1, y1, x2, y2),
+                        landmarks=face_obj.get("landmarks"),
+                        rppg_result=rppg_result,
+                    )
+                    _update_tracker_match(
+                        tracker,
+                        display,
+                        decision.confidence,
+                        liveness_gate,
+                    )
+                    if not liveness_gate.allowed:
+                        tracker.add_vote("Unknown")
+                        tracker.display_text = (
+                            f"{display} ({decision.confidence:.2f})"
+                            f"{_liveness_suffix(liveness_gate)}"
+                        )
+                        tracker.display_color = (
+                            (0, 0, 255)
+                            if liveness_gate.decision == "REJECT_SPOOF"
+                            else (0, 165, 255)
+                        )
+                        if class_id is not None and tracker.should_log_event():
+                            _record_liveness_event(
+                                class_id,
+                                best_name,
+                                liveness_gate,
+                                decision,
+                                best_dist,
+                                gap,
+                            )
+                        _draw_label(frame, tracker)
+                        continue
+
+                    tracker.add_vote(best_name)
 
                     # Check if this person already attended
                     if best_name in attended:
                         tracker.confirmed_name = best_name
-                        tracker.display_text = f"{display} (PRESENT)"
+                        tracker.display_text = f"{display} (PRESENT){_liveness_suffix(liveness_gate)}"
                         tracker.display_color = (0, 255, 0)
                     else:
-                        tracker.display_text = f"{display} ({decision.confidence:.2f})"
+                        tracker.display_text = (
+                            f"{display} ({decision.confidence:.2f})"
+                            f"{_liveness_suffix(liveness_gate)}"
+                        )
                         tracker.display_color = (0, 255, 255)  # Yellow candidate
                 elif decision.status == "NEED_REVIEW":
                     tracker.add_vote("Unknown")
                     display = get_display_name(best_name)
+                    _update_tracker_match(tracker, display, decision.confidence)
                     tracker.display_text = f"REVIEW {display} ({decision.confidence:.2f})"
                     tracker.display_color = (0, 165, 255)
                     if class_id is not None and tracker.should_log_event():
@@ -328,6 +527,7 @@ def process_frame(
                         )
                 else:
                     tracker.add_vote("Unknown")
+                    _update_tracker_match(tracker, "Unknown", decision.confidence)
                     tracker.display_text = "Unknown"
                     tracker.display_color = (0, 0, 255)
 
@@ -339,6 +539,7 @@ def process_frame(
                                                         decision.confidence,
                                                         deadline_hour, deadline_minute)
                         if logged:
+                            event_liveness = liveness_gate.result if liveness_gate else None
                             record_recognition_event(
                                 class_id,
                                 confirmed,
@@ -346,6 +547,10 @@ def process_frame(
                                 decision.confidence,
                                 distance=best_dist,
                                 gap=gap,
+                                liveness_score=event_liveness.score if event_liveness else None,
+                                liveness_label=event_liveness.label if event_liveness else None,
+                                liveness_reasons=event_liveness.reasons if event_liveness else None,
+                                recognition_score=decision.confidence,
                             )
                             # Update cache
                             _attended_cache.add(confirmed)
@@ -391,6 +596,24 @@ def draw_tracker_labels(frame):
         if not tracker.is_expired():
             _draw_label(frame, tracker)
     return frame
+
+
+def get_tracker_hud_snapshot():
+    """Return the most recent tracker status for the native camera HUD."""
+    _cleanup_trackers()
+    with _tracker_lock:
+        trackers = [tracker for tracker in face_trackers if not tracker.is_expired()]
+    if not trackers:
+        return None
+    tracker = max(trackers, key=lambda item: item.last_seen)
+    return {
+        "identity": tracker.match_identity or "Unknown",
+        "recognition_score": tracker.recognition_score,
+        "liveness_label": tracker.liveness_label,
+        "liveness_score": tracker.liveness_score,
+        "liveness_reason": tracker.liveness_reason,
+        "display_text": tracker.display_text,
+    }
 
 
 def reset_trackers():

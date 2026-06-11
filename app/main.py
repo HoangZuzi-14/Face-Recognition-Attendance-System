@@ -1,9 +1,16 @@
-import streamlit as st
 import sys
 import os
 
-# Ensure the root directory is in sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+while ROOT_DIR in sys.path:
+    sys.path.remove(ROOT_DIR)
+sys.path.insert(0, ROOT_DIR)
+
+import streamlit as st
+
+from app.path_setup import ensure_repo_root_first
+
+ensure_repo_root_first(__file__)
 
 # UI Components
 from app.ui_components import (
@@ -19,7 +26,8 @@ from services.recognition_service import RecognitionService
 from services.audit_service import AuditService
 
 # Authentication & Access Control
-from app.auth import ROLE_ADMIN, ROLE_TEACHER, ROLE_VIEWER, can_perform
+from app.auth import can_perform
+from app.auth_ui import render_login_gate, render_logout_control
 
 # Subpages UI
 from app.pages.class_page import (
@@ -36,6 +44,7 @@ from app.pages.monitor_page import render_monitor_expander
 from app.config import NATIVE_DASHBOARD_REFRESH_SECONDS
 from app.camera_profiles import DEFAULT_CAMERA_PROFILE
 from app.native_camera import (
+    get_native_camera_preflight,
     start_native_camera_session,
     stop_native_camera_session,
     sync_native_camera_state,
@@ -59,6 +68,8 @@ inject_custom_css()
 
 # Render Navbar
 render_navbar()
+
+current_user = render_login_gate()
 
 # Initialize Services
 class_service = ClassService()
@@ -105,8 +116,7 @@ if "last_quality_message" not in st.session_state:
     st.session_state.last_quality_message = ""
 if "roster_ready" not in st.session_state:
     st.session_state.roster_ready = False
-if "user_role" not in st.session_state:
-    st.session_state.user_role = ROLE_ADMIN
+st.session_state.user_role = current_user["role"]
 
 default_class_id = class_service.ensure_default_class()
 if st.session_state.selected_class_id is None:
@@ -202,13 +212,7 @@ with col_left:
 
     control_col1, control_col2, control_col3 = st.columns([1.1, 0.8, 0.9])
     with control_col1:
-        current_role = st.selectbox(
-            "Vai trò",
-            options=[ROLE_ADMIN, ROLE_TEACHER, ROLE_VIEWER],
-            index=[ROLE_ADMIN, ROLE_TEACHER, ROLE_VIEWER].index(st.session_state.user_role),
-            key="role_select",
-        )
-        st.session_state.user_role = current_role
+        render_logout_control()
     with control_col2:
         st.session_state.cam_source = st.number_input(
             "Camera",
@@ -240,6 +244,22 @@ with col_left:
             class_service.class_has_roster(st.session_state.selected_class_id)
         )
     )
+    if not st.session_state.run and st.session_state.selected_class_id is not None:
+        preflight = get_native_camera_preflight(
+            class_id=st.session_state.selected_class_id
+        )
+        st.session_state.native_camera_preflight = preflight
+        liveness_label = "enabled" if preflight["liveness_enabled"] else "disabled"
+        st.caption(
+            "Native preflight: "
+            f"{preflight['active_identity_count']} active identities; "
+            f"db.pkl {preflight['face_db_status']}; "
+            f"SQLite {preflight['sqlite_status']}; "
+            f"liveness {liveness_label}."
+        )
+    native_error = st.session_state.get("native_camera_error")
+    if native_error:
+        st.error(native_error)
     start_disabled = (
         not can_perform(st.session_state.user_role, "attendance.run")
         or (st.session_state.capture_mode and not st.session_state.run)
