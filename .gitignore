@@ -24,6 +24,7 @@ wheels/
 # Virtual Environment
 venv/
 ENV/
+node_modules/
 
 # Data and Models
 data/
@@ -48,6 +49,8 @@ models/*.pb
 tmp/
 reports/
 logs/*.log
+*.log
+*.tsbuildinfo
 .gemini/
 .codex/
 .agents/
@@ -60,9 +63,12 @@ TASK.md
 TASKLIST.md
 Technical.md
 Explain.md
+DESIGN.md
 docs/superpowers/
 docs/integrity_report.md
 docs/data_fix_log.md
+skills-lock.json
+docs/frontend/
 
 # Keep PAD dataset structure, ignore collected samples
 datasets/pad/genuine/*

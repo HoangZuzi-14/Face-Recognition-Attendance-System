@@ -24,11 +24,10 @@ class DefaultRosterTests(unittest.TestCase):
 
                 roster = database.get_class_roster(class_id)
 
-                self.assertEqual(added, 30)
+                self.assertEqual(added, 29)
                 self.assertEqual(skipped, 0)
-                self.assertEqual(len(roster), 30)
+                self.assertEqual(len(roster), 29)
                 linked = dict(zip(roster["full_name"], roster["db_key"]))
-                self.assertEqual(linked["Duong Ngo Hoang Vu"], "Duong_Ngo_Hoang_Vu")
                 self.assertEqual(linked["Nguyen Khanh Toan"], "Nguyen_Khanh_Toan")
                 self.assertEqual(linked["Tony Blair"], "Tony_Blair")
             finally:
@@ -42,6 +41,11 @@ class DefaultRosterTests(unittest.TestCase):
             database.DB_PATH = str(Path(tmp) / "attendance.db")
             try:
                 database.init_db()
+                conn = database.get_connection()
+                conn.execute("DELETE FROM class_students")
+                conn.execute("DELETE FROM students")
+                conn.commit()
+                conn.close()
                 class_id = database.ensure_default_class()
 
                 student_id = database.ensure_student_in_class(
@@ -72,17 +76,17 @@ class DefaultRosterTests(unittest.TestCase):
                     class_id,
                     full_name="George W Bush",
                     db_key="George_W_Bush",
-                    mssv="DEMO001",
+                    mssv="DEMO002",
                 )
 
                 database.ensure_default_roster(
                     class_id,
-                    existing_faces={"Duong_Ngo_Hoang_Vu"},
+                    existing_faces={"Nguyen_Khanh_Toan"},
                 )
                 roster = database.get_class_roster(class_id)
                 linked = dict(zip(roster["full_name"], roster["db_key"]))
 
-                self.assertEqual(linked["Duong Ngo Hoang Vu"], "Duong_Ngo_Hoang_Vu")
+                self.assertEqual(linked["Nguyen Khanh Toan"], "Nguyen_Khanh_Toan")
             finally:
                 database.DB_PATH = old_db_path
 

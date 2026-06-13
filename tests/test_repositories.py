@@ -27,6 +27,11 @@ class RepositoryTests(unittest.TestCase):
     def test_class_repo_crud(self):
         repo = ClassRepository()
         
+        conn = database.get_connection()
+        conn.execute("DELETE FROM classes")
+        conn.commit()
+        conn.close()
+        
         # Test creation
         class_id = repo.create_class("CS101")
         self.assertIsNotNone(class_id)

@@ -139,7 +139,7 @@ class ServiceLayerTests(unittest.TestCase):
     def test_student_service_ensure_default_roster(self):
         class_id = self.class_service.ensure_default_class()
         added, skipped = self.student_service.ensure_default_roster(class_id)
-        self.assertEqual(added, 30)
+        self.assertEqual(added, 29)
         self.assertTrue(self.class_service.class_has_roster(class_id))
 
     def test_attendance_service_log_attendance_deadline(self):

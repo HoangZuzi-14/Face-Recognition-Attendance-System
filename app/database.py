@@ -8,7 +8,6 @@ from app.backup import backup_sqlite_db
 DB_PATH = "app/attendance.db"
 DEFAULT_CLASS_NAME = "Default Demo Class"
 DEFAULT_ROSTER = [
-    ("DEMO001", "Duong Ngo Hoang Vu"),
     ("DEMO002", "Nguyen Khanh Toan"),
     ("DEMO003", "Tony Blair"),
     ("DEMO004", "Donald Rumsfeld"),
@@ -184,6 +183,12 @@ def init_db():
     conn.commit()
     _sync_face_identities(conn)
     conn.close()
+
+    try:
+        class_id = ensure_default_class()
+        ensure_default_roster(class_id)
+    except Exception as e:
+        print(f"Error seeding default demo data: {e}")
 
 
 def _ensure_column(cursor, table_name, column_name, column_type):
