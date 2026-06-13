@@ -8,13 +8,14 @@ import os
 import cv2
 import numpy as np
 from dataclasses import dataclass
+from app.config import FACE_DB_PATH
 from src.face_db import EMBEDDING_MODEL_ID, set_identity_embedding
 from src.embedding_store import load_embeddings, save_embeddings_safely
 from src.face_model import get_face_model
 
 RAW_DIR = "data/raw"
 PROCESSED_DIR = "data/processed"
-DB_PATH = "data/embeddings/db.pkl"
+DB_PATH = FACE_DB_PATH
 TARGET_SIZE = (112, 112)
 
 
@@ -26,6 +27,26 @@ class FaceRegistrationResult:
     valid_images: int = 0
 
 
+def _capture_index(filename, person_key):
+    stem, _ = os.path.splitext(filename)
+    prefix = f"{person_key}_"
+    if not stem.startswith(prefix):
+        return None
+    suffix = stem[len(prefix):]
+    return int(suffix) if suffix.isdigit() else None
+
+
+def _filter_capture_batch(img_names, person_key, min_index=None):
+    if min_index is None:
+        return sorted(img_names)
+    selected = []
+    for img_name in img_names:
+        index = _capture_index(img_name, person_key)
+        if index is not None and index >= int(min_index):
+            selected.append(img_name)
+    return sorted(selected)
+
+
 def save_captured_frame(person_key, frame, index):
     """Save a single captured frame to raw data directory."""
     person_dir = os.path.join(RAW_DIR, person_key)
@@ -35,7 +56,7 @@ def save_captured_frame(person_key, frame, index):
     return img_path
 
 
-def preprocess_person(person_key):
+def preprocess_person(person_key, min_index=None):
     """Align + crop face images for a single person.
     Returns number of valid images processed.
     """
@@ -45,6 +66,7 @@ def preprocess_person(person_key):
 
     img_names = [f for f in os.listdir(person_raw_dir)
                  if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    img_names = _filter_capture_batch(img_names, person_key, min_index)
     if not img_names:
         return 0
 
@@ -72,7 +94,7 @@ def preprocess_person(person_key):
     return valid_count
 
 
-def extract_and_merge_embedding(person_key):
+def extract_and_merge_embedding(person_key, min_index=None):
     """Extract embedding for one person and merge into existing db.pkl.
     Returns True on success.
     """
@@ -82,6 +104,7 @@ def extract_and_merge_embedding(person_key):
 
     img_names = [f for f in os.listdir(person_proc_dir)
                  if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    img_names = _filter_capture_batch(img_names, person_key, min_index)
     if not img_names:
         return False
 
@@ -104,6 +127,7 @@ def extract_and_merge_embedding(person_key):
                 f for f in os.listdir(person_raw_dir)
                 if f.lower().endswith(('.png', '.jpg', '.jpeg'))
             ]
+            raw_img_names = _filter_capture_batch(raw_img_names, person_key, min_index)
             for img_name in raw_img_names:
                 img_path = os.path.join(person_raw_dir, img_name)
                 try:
@@ -129,9 +153,9 @@ def extract_and_merge_embedding(person_key):
     return bool(result["ok"])
 
 
-def finalize_face_registration(person_key):
+def finalize_face_registration(person_key, start_index=None):
     """Preprocess captured images, extract embeddings, and return a user-facing result."""
-    valid = preprocess_person(person_key)
+    valid = preprocess_person(person_key, min_index=start_index)
     if valid <= 0:
         return FaceRegistrationResult(
             ok=False,
@@ -143,7 +167,7 @@ def finalize_face_registration(person_key):
             ),
         )
 
-    if not extract_and_merge_embedding(person_key):
+    if not extract_and_merge_embedding(person_key, min_index=start_index):
         return FaceRegistrationResult(
             ok=False,
             stage="embedding",

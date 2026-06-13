@@ -1,1 +1,0 @@
-event_id,student_db_key,decision,recognition_score,liveness_score,liveness_label,attack_type,timestamp,attendance_logged,spoof_attendance_violation

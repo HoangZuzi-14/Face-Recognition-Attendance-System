@@ -83,6 +83,7 @@ class DemoTestResultsExportTests(unittest.TestCase):
                 result = export_demo_test_results(
                     db_path=database.DB_PATH,
                     reports_dir=tmp_path / "reports",
+                    demo_date="2026-06-11",
                 )
 
                 self.assertEqual(result["recognition_events"], 2)

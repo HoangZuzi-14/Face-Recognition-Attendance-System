@@ -144,10 +144,83 @@ def assess_texture_liveness(frame, face_bbox):
 def _get_default_pad_model():
     global _PAD_MODEL_CACHE
     if _PAD_MODEL_CACHE is None:
-        from src.pad.minifasnet import MiniFASNetPAD
+        from src.pad import MiniFASNetPAD
 
         _PAD_MODEL_CACHE = MiniFASNetPAD(PAD_MODEL_PATH)
     return _PAD_MODEL_CACHE
+
+
+def _pad_details(pad_result, threshold):
+    return {
+        "live_score": pad_result.live_score,
+        "print_score": pad_result.print_score,
+        "replay_score": pad_result.replay_score,
+        "spoof_score": pad_result.spoof_score,
+        "label": pad_result.label,
+        "threshold": threshold,
+    }
+
+
+def detect_spoof(frame, face_bbox, pad_model=None, pad_threshold=None):
+    """Run passive PAD only; attendance policy is handled by callers."""
+    if frame is None or not _valid_frame_shape(frame):
+        return LivenessResult(
+            score=0.0,
+            label=LIVENESS_UNKNOWN,
+            reasons=["frame_missing"],
+            details={},
+        )
+
+    bbox, error = _validate_bbox(face_bbox, frame.shape)
+    if error:
+        return LivenessResult(
+            score=0.0,
+            label=LIVENESS_UNKNOWN,
+            reasons=[error],
+            details={"frame_shape": tuple(frame.shape[:2])},
+        )
+
+    threshold = PAD_THRESHOLD if pad_threshold is None else float(pad_threshold)
+    selected_pad_model = pad_model
+    if selected_pad_model is None:
+        if not PASSIVE_PAD_ENABLED:
+            return LivenessResult(
+                score=0.0,
+                label=LIVENESS_UNKNOWN,
+                reasons=["passive_pad_disabled"],
+                details={"bbox": bbox},
+            )
+        selected_pad_model = _get_default_pad_model()
+
+    try:
+        pad_result = selected_pad_model.predict(frame, bbox)
+    except Exception as exc:
+        from src.pad import PADModelUnavailable
+
+        reason = "pad_model_unavailable" if isinstance(exc, PADModelUnavailable) else "pad_inference_error"
+        return LivenessResult(
+            score=0.0,
+            label=LIVENESS_UNKNOWN,
+            reasons=[reason],
+            details={"bbox": bbox, "pad_error": str(exc)},
+        )
+
+    if pad_result.label == "LIVE":
+        label = LIVENESS_LIVE
+        reason = "pad_live"
+    elif pad_result.label == "SPOOF":
+        label = LIVENESS_SPOOF
+        reason = "pad_low_score"
+    else:
+        label = LIVENESS_CHALLENGE
+        reason = "pad_uncertain"
+
+    return LivenessResult(
+        score=float(pad_result.live_score),
+        label=label,
+        reasons=[reason],
+        details={"bbox": bbox, "pad": _pad_details(pad_result, threshold)},
+    )
 
 
 def assess_liveness(
@@ -177,7 +250,6 @@ def assess_liveness(
 
     x1, y1, x2, y2 = bbox
     bbox_area = (x2 - x1) * (y2 - y1)
-    crop = frame[y1:y2, x1:x2]
     texture_result = assess_texture_liveness(frame, bbox)
     threshold = PAD_THRESHOLD if pad_threshold is None else float(pad_threshold)
     details = {
@@ -189,27 +261,10 @@ def assess_liveness(
     }
     reasons = ["rule_placeholder_live"]
 
-    pad_result = None
-    selected_pad_model = pad_model
-    if selected_pad_model is None and PASSIVE_PAD_ENABLED:
-        selected_pad_model = _get_default_pad_model()
-    if selected_pad_model is not None:
-        try:
-            pad_result = selected_pad_model.predict(crop)
-            details["pad"] = {
-                "live_score": pad_result.live_score,
-                "spoof_score": pad_result.spoof_score,
-                "threshold": threshold,
-            }
-        except Exception as exc:
-            from src.pad.minifasnet import PADModelUnavailable
-
-            if isinstance(exc, PADModelUnavailable):
-                reasons.append("pad_model_unavailable")
-                details["pad_error"] = str(exc)
-            else:
-                reasons.append("pad_inference_error")
-                details["pad_error"] = str(exc)
+    pad_gate = None
+    if pad_model is not None or PASSIVE_PAD_ENABLED:
+        pad_gate = detect_spoof(frame, bbox, pad_model=pad_model, pad_threshold=threshold)
+        details.update(pad_gate.details)
 
     if rppg_result is not None:
         details["rppg"] = {
@@ -220,17 +275,18 @@ def assess_liveness(
             "details": dict(rppg_result.details),
         }
 
-    if pad_result is not None:
-        if pad_result.live_score >= threshold:
-            reasons.append("pad_live")
-            label = LIVENESS_LIVE
-        else:
-            reasons.append("pad_low_score")
-            label = LIVENESS_SPOOF
+    if pad_gate is not None:
+        if pad_gate.label == LIVENESS_UNKNOWN:
+            return LivenessResult(
+                score=0.0,
+                label=LIVENESS_UNKNOWN,
+                reasons=pad_gate.reasons,
+                details=details,
+            )
         return LivenessResult(
-            score=float(pad_result.live_score),
-            label=label,
-            reasons=reasons,
+            score=pad_gate.score,
+            label=pad_gate.label,
+            reasons=reasons + pad_gate.reasons,
             details=details,
         )
 

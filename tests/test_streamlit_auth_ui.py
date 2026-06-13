@@ -7,6 +7,7 @@ class StreamlitAuthUiTests(unittest.TestCase):
         source = Path("app/main.py").read_text(encoding="utf-8")
 
         self.assertIn("render_login_gate", source)
+        self.assertIn("portal_for_role", source)
         self.assertNotIn("role_select", source)
 
 

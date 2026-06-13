@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.config import LIVENESS_ENABLED
+from app.config import FACE_DB_PATH, LIVENESS_ENABLED
 from app.camera_profiles import DEFAULT_CAMERA_PROFILE, resolve_camera_profile
 from src.face_db import identity_count
 
@@ -103,7 +103,7 @@ def get_native_camera_preflight(
     db_loader=None,
     active_db_builder=None,
     sqlite_db_path="app/attendance.db",
-    face_db_path="data/embeddings/db.pkl",
+    face_db_path=FACE_DB_PATH,
     liveness_enabled=None,
 ):
     if db_loader is None:

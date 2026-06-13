@@ -173,8 +173,14 @@ def init_db():
     _ensure_column(c, "recognition_events", "attack_type", "TEXT")
     _ensure_column(c, "recognition_events", "liveness_reasons", "TEXT")
     _ensure_column(c, "recognition_events", "recognition_score", "REAL")
+    _ensure_column(c, "recognition_events", "live_score", "REAL")
+    _ensure_column(c, "recognition_events", "print_score", "REAL")
+    _ensure_column(c, "recognition_events", "replay_score", "REAL")
+    _ensure_column(c, "recognition_events", "spoof_score", "REAL")
+    _ensure_column(c, "recognition_events", "attendance_logged", "INTEGER DEFAULT 0")
 
-    _seed_initial_admin(conn)
+    _seed_default_users(conn)
+
     conn.commit()
     _sync_face_identities(conn)
     conn.close()
@@ -187,26 +193,38 @@ def _ensure_column(cursor, table_name, column_name, column_type):
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
-def _seed_initial_admin(conn):
-    cursor = conn.cursor()
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] > 0:
+def _upsert_default_user(cursor, username, password, role):
+    cursor.execute("SELECT id FROM users WHERE username=?", (username,))
+    if cursor.fetchone():
         return
-
-    from app.auth import ROLE_ADMIN, hash_password
-
-    username = os.environ.get("ATTENDANCE_ADMIN_USERNAME", "admin").strip() or "admin"
-    password = os.environ.get("ATTENDANCE_ADMIN_PASSWORD", "admin123").strip()
-    if not password:
-        password = "admin123"
+    from app.auth import hash_password
 
     cursor.execute(
         """
         INSERT INTO users (username, password_hash, role, created_at, is_active)
         VALUES (?, ?, ?, ?, 1)
         """,
-        (username, hash_password(password), ROLE_ADMIN, datetime.now().isoformat()),
+        (username, hash_password(password), role, datetime.now().isoformat()),
     )
+
+
+def _seed_default_users(conn):
+    cursor = conn.cursor()
+
+    from app.auth import ROLE_ADMIN, ROLE_TEACHER
+
+    admin_username = os.environ.get("ATTENDANCE_ADMIN_USERNAME", "admin").strip() or "admin"
+    admin_password = os.environ.get("ATTENDANCE_ADMIN_PASSWORD", "admin123").strip()
+    if not admin_password:
+        admin_password = "admin123"
+
+    teacher_username = os.environ.get("ATTENDANCE_TEACHER_USERNAME", "teacher").strip() or "teacher"
+    teacher_password = os.environ.get("ATTENDANCE_TEACHER_PASSWORD", "teacher123").strip()
+    if not teacher_password:
+        teacher_password = "teacher123"
+
+    _upsert_default_user(cursor, admin_username, admin_password, ROLE_ADMIN)
+    _upsert_default_user(cursor, teacher_username, teacher_password, ROLE_TEACHER)
 
 
 def _sync_face_identities(conn):
@@ -732,6 +750,11 @@ def record_recognition_event(
     attack_type=None,
     liveness_reasons=None,
     recognition_score=None,
+    live_score=None,
+    print_score=None,
+    replay_score=None,
+    spoof_score=None,
+    attendance_logged=0,
 ):
     if session_id is None and class_id is not None:
         session_id = get_or_create_attendance_session(class_id)
@@ -747,9 +770,11 @@ def record_recognition_event(
             class_id, session_id, student_db_key, decision,
             confidence, distance, gap, created_at,
             liveness_score, liveness_label, attack_type,
-            liveness_reasons, recognition_score
+            liveness_reasons, recognition_score,
+            live_score, print_score, replay_score, spoof_score,
+            attendance_logged
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             class_id,
@@ -765,6 +790,11 @@ def record_recognition_event(
             attack_type,
             liveness_reasons,
             recognition_score,
+            live_score,
+            print_score,
+            replay_score,
+            spoof_score,
+            attendance_logged,
         ),
     )
     conn.commit()

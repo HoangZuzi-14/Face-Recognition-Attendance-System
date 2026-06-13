@@ -26,8 +26,8 @@ CAMERA_PROFILES = {
         height=360,
         fps=60,
         fourcc="MJPG",
-        recognition_interval=0.35,
-        recognition_scale=0.35,
+        recognition_interval=0.18,
+        recognition_scale=0.32,
     ),
 }
 

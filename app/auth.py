@@ -20,6 +20,7 @@ PERMISSIONS = {
     },
     ROLE_TEACHER: {
         "attendance.run",
+        "roster.import",
         "face.register",
         "report.export",
         "system.monitor",

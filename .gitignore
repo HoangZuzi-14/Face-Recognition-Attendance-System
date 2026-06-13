@@ -28,9 +28,11 @@ ENV/
 # Data and Models
 data/
 backups/
+models/
 models/*.h5
 models/*.pkl
 models/*.pb
+*.onnx
 
 # SQLite
 *.db
@@ -44,7 +46,27 @@ models/*.pb
 
 # Project specific
 tmp/
+reports/
 logs/*.log
 .gemini/
+.codex/
+.agents/
 notebooks/.ipynb_checkpoints
 config.yaml
+
+# Local agent/task notes
+CHECKPOINT.md
+TASK.md
+TASKLIST.md
+Technical.md
+Explain.md
+docs/superpowers/
+docs/integrity_report.md
+docs/data_fix_log.md
+
+# Keep PAD dataset structure, ignore collected samples
+datasets/pad/genuine/*
+datasets/pad/print_attack/*
+datasets/pad/screen_attack/*
+datasets/pad/cutout_attack/*
+!datasets/pad/**/.gitkeep

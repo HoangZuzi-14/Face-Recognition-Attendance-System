@@ -13,6 +13,8 @@ from app.config import (
     VOTE_WINDOW, VOTE_RATIO, SKIP_FRAMES, TRACKER_TIMEOUT, MATCH_DISTANCE_PX,
     STATIC_FACE_TIMEOUT, RECOGNITION_FRAME_SCALE, LIVENESS_ENABLED,
     RPPG_ENABLED, RPPG_WINDOW,
+    FACE_DB_PATH,
+    PAD_SPOOF_THRESHOLD, PAD_LIVE_THRESHOLD, PAD_VOTING_WINDOW,
 )
 from app.database import (
     log_attendance, get_attended_today_for_class, get_student_by_db_key,
@@ -76,6 +78,7 @@ def evaluate_liveness_gate(
     enabled=None,
     assessor=assess_liveness,
     rppg_result=None,
+    tracker=None,
 ):
     if enabled is None:
         enabled = LIVENESS_ENABLED
@@ -102,8 +105,62 @@ def evaluate_liveness_gate(
     pad_score = None
     rppg_confidence = None
     if isinstance(result.details, dict):
-        pad_score = (result.details.get("pad") or {}).get("live_score")
+        pad_details = result.details.get("pad")
         rppg_confidence = (result.details.get("rppg") or {}).get("pulse_confidence")
+        if pad_details and "live_score" in pad_details:
+            live_sc = pad_details["live_score"]
+            print_sc = pad_details.get("print_score", 0.0)
+            replay_sc = pad_details.get("replay_score", 0.0)
+            spoof_sc = pad_details.get("spoof_score", 1.0 - live_sc)
+
+            if tracker is not None:
+                tracker.liveness_history.append((live_sc, print_sc, replay_sc, spoof_sc))
+                if len(tracker.liveness_history) > PAD_VOTING_WINDOW:
+                    tracker.liveness_history = tracker.liveness_history[-PAD_VOTING_WINDOW:]
+
+                med_live = float(np.median([h[0] for h in tracker.liveness_history]))
+                med_print = float(np.median([h[1] for h in tracker.liveness_history]))
+                med_replay = float(np.median([h[2] for h in tracker.liveness_history]))
+                med_spoof = float(np.median([h[3] for h in tracker.liveness_history]))
+            else:
+                med_live = live_sc
+                med_print = print_sc
+                med_replay = replay_sc
+                med_spoof = spoof_sc
+
+            pad_details["live_score"] = med_live
+            pad_details["print_score"] = med_print
+            pad_details["replay_score"] = med_replay
+            pad_details["spoof_score"] = med_spoof
+
+            if med_spoof >= PAD_SPOOF_THRESHOLD:
+                label = LIVENESS_SPOOF
+                short_reason = "pad_low_score"
+            elif med_live >= PAD_LIVE_THRESHOLD:
+                label = LIVENESS_LIVE
+                short_reason = "pad_live"
+            else:
+                label = LIVENESS_CHALLENGE
+                short_reason = "pad_uncertain"
+
+            result = LivenessResult(
+                score=med_live,
+                label=label,
+                reasons=[short_reason] + result.reasons[1:],
+                details=result.details,
+            )
+            pad_score = med_live
+        else:
+            pad_score = result.score
+
+    challenge_res = None
+    if label == LIVENESS_CHALLENGE:
+        challenge_res = "required"
+    elif label == LIVENESS_SPOOF:
+        challenge_res = "failed"
+    elif label == LIVENESS_LIVE:
+        challenge_res = "passed"
+
     if label == LIVENESS_CHALLENGE:
         fusion = fuse_decision(
             recognition_score=1.0,
@@ -127,6 +184,7 @@ def evaluate_liveness_gate(
             recognition_matched=True,
             liveness_score=result.score,
             pad_score=pad_score,
+            challenge_result=challenge_res,
             rppg_confidence=rppg_confidence,
         )
     if label == LIVENESS_SPOOF and fusion.decision == DECISION_ACCEPT:
@@ -174,6 +232,7 @@ class FaceTracker:
         self.liveness_score = None
         self.liveness_reason = ""
         self.rppg_buffer = RppgFrameBuffer(RPPG_WINDOW)
+        self.liveness_history = []
 
     def update_position(self, cx, cy):
         self.movement_total += float(np.sqrt((self.cx - cx) ** 2 + (self.cy - cy) ** 2))
@@ -334,6 +393,11 @@ def _update_tracker_match(tracker, identity, recognition_score, gate=None):
 
 def _record_liveness_event(class_id, best_name, gate, decision, best_dist, gap):
     attack_type = "presentation_attack" if gate.result.label == LIVENESS_SPOOF else None
+    pad_details = gate.result.details.get("pad") or {}
+    live_sc = pad_details.get("live_score")
+    print_sc = pad_details.get("print_score")
+    replay_sc = pad_details.get("replay_score")
+    spoof_sc = pad_details.get("spoof_score")
     record_recognition_event(
         class_id,
         best_name,
@@ -346,6 +410,11 @@ def _record_liveness_event(class_id, best_name, gate, decision, best_dist, gap):
         attack_type=attack_type,
         liveness_reasons=gate.result.reasons,
         recognition_score=decision.confidence,
+        live_score=live_sc,
+        print_score=print_sc,
+        replay_score=replay_sc,
+        spoof_score=spoof_sc,
+        attendance_logged=0,
     )
 
 
@@ -453,10 +522,10 @@ def process_frame(
                 gap = second_dist - best_dist
 
                 decision = classify_match(best_dist, gap)
+                display = get_display_name(best_name)
                 liveness_gate = None
 
                 if decision.status == "ACCEPT":
-                    display = get_display_name(best_name)
                     rppg_result = _update_rppg_result(
                         tracker,
                         frame,
@@ -467,6 +536,7 @@ def process_frame(
                         face_bbox=(x1, y1, x2, y2),
                         landmarks=face_obj.get("landmarks"),
                         rppg_result=rppg_result,
+                        tracker=tracker,
                     )
                     _update_tracker_match(
                         tracker,
@@ -474,6 +544,7 @@ def process_frame(
                         decision.confidence,
                         liveness_gate,
                     )
+
                     if not liveness_gate.allowed:
                         tracker.add_vote("Unknown")
                         tracker.display_text = (
@@ -482,7 +553,7 @@ def process_frame(
                         )
                         tracker.display_color = (
                             (0, 0, 255)
-                            if liveness_gate.decision == "REJECT_SPOOF"
+                            if liveness_gate.decision == DECISION_REJECT_SPOOF
                             else (0, 165, 255)
                         )
                         if class_id is not None and tracker.should_log_event():
@@ -511,9 +582,8 @@ def process_frame(
                         )
                         tracker.display_color = (0, 255, 255)  # Yellow candidate
                 elif decision.status == "NEED_REVIEW":
-                    tracker.add_vote("Unknown")
-                    display = get_display_name(best_name)
                     _update_tracker_match(tracker, display, decision.confidence)
+                    tracker.add_vote("Unknown")
                     tracker.display_text = f"REVIEW {display} ({decision.confidence:.2f})"
                     tracker.display_color = (0, 165, 255)
                     if class_id is not None and tracker.should_log_event():
@@ -524,22 +594,42 @@ def process_frame(
                             decision.confidence,
                             distance=best_dist,
                             gap=gap,
+                            liveness_score=None,
+                            liveness_label=None,
+                            liveness_reasons=None,
+                            recognition_score=decision.confidence,
+                            live_score=None,
+                            print_score=None,
+                            replay_score=None,
+                            spoof_score=None,
+                            attendance_logged=0,
                         )
                 else:
-                    tracker.add_vote("Unknown")
                     _update_tracker_match(tracker, "Unknown", decision.confidence)
+                    tracker.add_vote("Unknown")
                     tracker.display_text = "Unknown"
                     tracker.display_color = (0, 0, 255)
 
                 # Temporal voting
                 confirmed = tracker.get_voted_identity()
-                if confirmed and confirmed not in attended:
+                if decision.status == "ACCEPT" and liveness_gate.allowed and confirmed and confirmed not in attended:
                     if class_id is not None:
                         logged, status = log_attendance(confirmed, class_id,
                                                         decision.confidence,
                                                         deadline_hour, deadline_minute)
                         if logged:
                             event_liveness = liveness_gate.result if liveness_gate else None
+                            pad_details = event_liveness.details.get("pad") if event_liveness else None
+                            if pad_details:
+                                live_sc = pad_details.get("live_score")
+                                print_sc = pad_details.get("print_score")
+                                replay_sc = pad_details.get("replay_score")
+                                spoof_sc = pad_details.get("spoof_score")
+                            else:
+                                live_sc = None
+                                print_sc = None
+                                replay_sc = None
+                                spoof_sc = None
                             record_recognition_event(
                                 class_id,
                                 confirmed,
@@ -551,6 +641,11 @@ def process_frame(
                                 liveness_label=event_liveness.label if event_liveness else None,
                                 liveness_reasons=event_liveness.reasons if event_liveness else None,
                                 recognition_score=decision.confidence,
+                                live_score=live_sc,
+                                print_score=print_sc,
+                                replay_score=replay_sc,
+                                spoof_score=spoof_sc,
+                                attendance_logged=1,
                             )
                             # Update cache
                             _attended_cache.add(confirmed)

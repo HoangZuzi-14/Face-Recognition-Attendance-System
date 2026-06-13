@@ -25,6 +25,31 @@ def render_login_gate():
         '<h1 class="page-title" style="margin-top:-1rem;">Dang nhap he thong</h1>',
         unsafe_allow_html=True,
     )
+    
+    # Quick login buttons
+    import os
+    admin_user = os.environ.get("ATTENDANCE_ADMIN_USERNAME", "admin").strip() or "admin"
+    admin_pass = os.environ.get("ATTENDANCE_ADMIN_PASSWORD", "admin123").strip() or "admin123"
+    teacher_user = os.environ.get("ATTENDANCE_TEACHER_USERNAME", "teacher").strip() or "teacher"
+    teacher_pass = os.environ.get("ATTENDANCE_TEACHER_PASSWORD", "teacher123").strip() or "teacher123"
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔑 Đăng nhập nhanh Admin", use_container_width=True):
+            user = authenticate_user(admin_user, admin_pass)
+            if user:
+                set_session_user(st.session_state, user)
+                set_current_user(user)
+                st.rerun()
+    with col2:
+        if st.button("👨‍🏫 Đăng nhập nhanh Teacher", use_container_width=True):
+            user = authenticate_user(teacher_user, teacher_pass)
+            if user:
+                set_session_user(st.session_state, user)
+                set_current_user(user)
+                st.rerun()
+
+    st.markdown("<div style='margin-top: 1.5rem;'>Hoặc đăng nhập thủ công:</div>", unsafe_allow_html=True)
     with st.form("login_form", clear_on_submit=False):
         username = st.text_input("Tai khoan", key="login_username")
         password = st.text_input("Mat khau", type="password", key="login_password")
@@ -38,7 +63,10 @@ def render_login_gate():
             st.rerun()
         st.error("Tai khoan hoac mat khau khong dung, hoac user da bi khoa.")
 
-    st.info("Tai khoan mac dinh: admin / admin123 neu chua cau hinh bien moi truong.")
+    st.info(
+        "Tai khoan mac dinh: admin / admin123 va teacher / teacher123 "
+        "neu chua cau hinh bien moi truong."
+    )
     st.stop()
 
 

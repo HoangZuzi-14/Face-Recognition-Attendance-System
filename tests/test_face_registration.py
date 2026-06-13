@@ -43,6 +43,17 @@ class FaceRegistrationTests(unittest.TestCase):
         self.assertEqual(result.stage, "complete")
         self.assertEqual(result.valid_images, 5)
 
+    def test_finalize_registration_processes_only_new_capture_batch(self):
+        from app.add_face import finalize_face_registration
+
+        with patch("app.add_face.preprocess_person", return_value=4) as preprocess, \
+             patch("app.add_face.extract_and_merge_embedding", return_value=True) as extract:
+            result = finalize_face_registration("Nguyen_Van_A", start_index=12)
+
+        self.assertTrue(result.ok)
+        preprocess.assert_called_once_with("Nguyen_Van_A", min_index=12)
+        extract.assert_called_once_with("Nguyen_Van_A", min_index=12)
+
     def test_extract_embedding_falls_back_to_raw_frames_when_processed_detection_fails(self):
         from app.add_face import extract_and_merge_embedding
 

@@ -28,6 +28,7 @@ from services.audit_service import AuditService
 # Authentication & Access Control
 from app.auth import can_perform
 from app.auth_ui import render_login_gate, render_logout_control
+from app.portal import portal_for_role
 
 # Subpages UI
 from app.pages.class_page import (
@@ -117,6 +118,7 @@ if "last_quality_message" not in st.session_state:
 if "roster_ready" not in st.session_state:
     st.session_state.roster_ready = False
 st.session_state.user_role = current_user["role"]
+current_portal = portal_for_role(st.session_state.user_role)
 
 default_class_id = class_service.ensure_default_class()
 if st.session_state.selected_class_id is None:
@@ -125,6 +127,7 @@ sync_native_camera_state(st.session_state)
 
 # Title & Styled Navigation Tabs Header
 st.markdown('<h1 class="page-title" style="margin-top:-1rem;">Hệ Thống Điểm Danh Thông Minh</h1>', unsafe_allow_html=True)
+st.caption(f"{current_portal['label']} - {current_portal['description']}")
 render_tabs()
 
 db = st.session_state.db
@@ -275,6 +278,9 @@ with col_left:
             if st.session_state.run:
                 stop_native_camera_session(st.session_state)
             else:
+                from src.recognize import reset_trackers
+                attendance_service.clear_today(st.session_state.selected_class_id)
+                reset_trackers()
                 start_native_camera_session(
                     st.session_state,
                     camera_index=int(st.session_state.cam_source),
@@ -326,17 +332,16 @@ with col_left:
     render_class_selector(class_service, default_class_id)
     render_class_info(class_service)
 
-    # Action panels (Tabs)
-    setup_tab, roster_tab, face_tab = st.tabs(["Lớp học", "Danh sách", "Khuôn mặt"])
-
-    with setup_tab:
-        render_setup_tab(class_service, st.session_state.user_role)
-
-    with roster_tab:
-        render_roster_tab(student_service, st.session_state.user_role, db.keys() if db else None)
-
-    with face_tab:
-        render_face_registration_tab(student_service, st.session_state.user_role, default_class_id)
+    # Action panels (role-specific portal tabs)
+    tab_handles = st.tabs(list(current_portal["tab_labels"]))
+    for tab_key, tab_handle in zip(current_portal["tabs"], tab_handles):
+        with tab_handle:
+            if tab_key == "setup":
+                render_setup_tab(class_service, st.session_state.user_role)
+            elif tab_key == "roster":
+                render_roster_tab(student_service, st.session_state.user_role, db.keys() if db else None)
+            elif tab_key == "face":
+                render_face_registration_tab(student_service, st.session_state.user_role, default_class_id)
 
 # ═══════════════════════════════════════════════
 # RIGHT COLUMN: Attendance Table & Monitoring

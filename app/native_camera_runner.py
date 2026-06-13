@@ -13,6 +13,7 @@ import time
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from app.config import LIVENESS_ENABLED  # noqa: E402
 from app.camera_profiles import DEFAULT_CAMERA_PROFILE, resolve_camera_profile  # noqa: E402
 from src.face_db import identity_count  # noqa: E402
 
@@ -69,16 +70,22 @@ def _format_hud_lines(
     recognition_running=False,
     last_model_ms=0.0,
     tracker_snapshot=None,
+    liveness_enabled=LIVENESS_ENABLED,
 ):
     status = "REC..." if recognition_running else "LIVE"
     lines = [f"{status} | model {last_model_ms:.0f} ms | Q/ESC: close"]
     if not tracker_snapshot:
         lines.append("id -- | rec --")
-        lines.append("liveness UNKNOWN | live --")
+        lines.append("liveness OFF" if not liveness_enabled else "liveness UNKNOWN | live --")
         return lines
 
     identity = tracker_snapshot.get("identity") or "Unknown"
     recognition_score = _format_score(tracker_snapshot.get("recognition_score"))
+    if not liveness_enabled:
+        lines.append(f"id {identity} | rec {recognition_score}")
+        lines.append("liveness OFF")
+        return lines
+
     liveness_label = tracker_snapshot.get("liveness_label") or "UNKNOWN"
     liveness_score = _format_score(tracker_snapshot.get("liveness_score"))
     liveness_reason = tracker_snapshot.get("liveness_reason") or ""
@@ -88,8 +95,13 @@ def _format_hud_lines(
 
 
 def _put_hud(cv2, frame, recognition_running=False, last_model_ms=0.0, tracker_snapshot=None):
-    lines = _format_hud_lines(recognition_running, last_model_ms, tracker_snapshot)
-    warning = tracker_snapshot and tracker_snapshot.get("liveness_label") == "SPOOF"
+    lines = _format_hud_lines(
+        recognition_running,
+        last_model_ms,
+        tracker_snapshot,
+        liveness_enabled=LIVENESS_ENABLED,
+    )
+    warning = LIVENESS_ENABLED and tracker_snapshot and tracker_snapshot.get("liveness_label") == "SPOOF"
     for idx, line in enumerate(lines):
         y = 28 + idx * 28
         if idx == 2 and warning:

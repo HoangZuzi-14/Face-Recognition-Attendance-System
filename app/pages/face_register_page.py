@@ -110,7 +110,10 @@ def render_capture_ui(frame_placeholder):
         elif current_count > 0:
             stop_native_capture_session(st.session_state)
             with st.spinner("Dang trich xuat du lieu..."):
-                result = finalize_face_registration(person_key)
+                result = finalize_face_registration(
+                    person_key,
+                    start_index=st.session_state.capture_start_count,
+                )
                 if result.ok:
                     st.session_state.db = reload_db()
                     reset_trackers()

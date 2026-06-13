@@ -169,6 +169,7 @@ class NativeCameraTests(unittest.TestCase):
         lines = _format_hud_lines(
             recognition_running=False,
             last_model_ms=12.5,
+            liveness_enabled=True,
             tracker_snapshot={
                 "identity": "Alice Smith",
                 "recognition_score": 0.91,
@@ -184,6 +185,25 @@ class NativeCameraTests(unittest.TestCase):
         self.assertIn("SPOOF", lines[2])
         self.assertIn("live 0.12", lines[2])
         self.assertIn("pad_low_score", lines[2])
+
+    def test_hud_lines_show_liveness_off_for_demo_mode(self):
+        from app.native_camera_runner import _format_hud_lines
+
+        lines = _format_hud_lines(
+            recognition_running=False,
+            last_model_ms=12.5,
+            liveness_enabled=False,
+            tracker_snapshot={
+                "identity": "Alice Smith",
+                "recognition_score": 0.91,
+                "liveness_label": "LIVE",
+                "liveness_score": 1.0,
+            },
+        )
+
+        self.assertIn("Alice Smith", lines[1])
+        self.assertIn("liveness OFF", lines[2])
+        self.assertNotIn("LIVE 1.00", lines[2])
 
     def test_open_capture_applies_profile_properties(self):
         from app.camera_profiles import resolve_camera_profile
