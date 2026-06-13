@@ -14,7 +14,9 @@ from app.config import (
     STATIC_FACE_TIMEOUT, RECOGNITION_FRAME_SCALE, LIVENESS_ENABLED,
     RPPG_ENABLED, RPPG_WINDOW,
     FACE_DB_PATH,
-    PAD_SPOOF_THRESHOLD, PAD_LIVE_THRESHOLD, PAD_VOTING_WINDOW,
+    PAD_CLEAR_LIVE_MAX_SPOOF, PAD_CLEAR_LIVE_THRESHOLD,
+    PAD_CLEAR_SPOOF_THRESHOLD, PAD_SPOOF_THRESHOLD,
+    PAD_LIVE_THRESHOLD, PAD_VOTING_WINDOW,
 )
 from app.database import (
     log_attendance, get_attended_today_for_class, get_student_by_db_key,
@@ -112,16 +114,27 @@ def evaluate_liveness_gate(
             print_sc = pad_details.get("print_score", 0.0)
             replay_sc = pad_details.get("replay_score", 0.0)
             spoof_sc = pad_details.get("spoof_score", 1.0 - live_sc)
+            clear_spoof = spoof_sc >= PAD_CLEAR_SPOOF_THRESHOLD
+            clear_live = (
+                live_sc >= PAD_CLEAR_LIVE_THRESHOLD
+                and spoof_sc <= PAD_CLEAR_LIVE_MAX_SPOOF
+            )
 
             if tracker is not None:
                 tracker.liveness_history.append((live_sc, print_sc, replay_sc, spoof_sc))
                 if len(tracker.liveness_history) > PAD_VOTING_WINDOW:
                     tracker.liveness_history = tracker.liveness_history[-PAD_VOTING_WINDOW:]
 
-                med_live = float(np.median([h[0] for h in tracker.liveness_history]))
-                med_print = float(np.median([h[1] for h in tracker.liveness_history]))
-                med_replay = float(np.median([h[2] for h in tracker.liveness_history]))
-                med_spoof = float(np.median([h[3] for h in tracker.liveness_history]))
+                if clear_spoof or clear_live:
+                    med_live = live_sc
+                    med_print = print_sc
+                    med_replay = replay_sc
+                    med_spoof = spoof_sc
+                else:
+                    med_live = float(np.median([h[0] for h in tracker.liveness_history]))
+                    med_print = float(np.median([h[1] for h in tracker.liveness_history]))
+                    med_replay = float(np.median([h[2] for h in tracker.liveness_history]))
+                    med_spoof = float(np.median([h[3] for h in tracker.liveness_history]))
             else:
                 med_live = live_sc
                 med_print = print_sc
@@ -133,7 +146,13 @@ def evaluate_liveness_gate(
             pad_details["replay_score"] = med_replay
             pad_details["spoof_score"] = med_spoof
 
-            if med_spoof >= PAD_SPOOF_THRESHOLD:
+            if clear_spoof:
+                label = LIVENESS_SPOOF
+                short_reason = "pad_spoof_clear"
+            elif clear_live:
+                label = LIVENESS_LIVE
+                short_reason = "pad_live_clear"
+            elif med_spoof >= PAD_SPOOF_THRESHOLD:
                 label = LIVENESS_SPOOF
                 short_reason = "pad_low_score"
             elif med_live >= PAD_LIVE_THRESHOLD:

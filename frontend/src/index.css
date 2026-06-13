@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
+@import '@fontsource/be-vietnam-pro/300.css';
+@import '@fontsource/be-vietnam-pro/400.css';
+@import '@fontsource/be-vietnam-pro/500.css';
+@import '@fontsource/be-vietnam-pro/600.css';
+@import '@fontsource/be-vietnam-pro/700.css';
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
 
 :root {
   --primary: #ce1628; /* Đỏ HUST chủ đạo */
@@ -28,8 +33,8 @@
   --unknown: #64748b;
   --unknown-bg: #f8fafc;
   
-  --font-display: 'Poppins', sans-serif;
-  --font-sans: 'Poppins', sans-serif;
+  --font-display: 'Be Vietnam Pro', sans-serif;
+  --font-sans: 'Be Vietnam Pro', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 }
 

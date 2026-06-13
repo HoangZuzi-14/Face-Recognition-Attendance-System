@@ -64,7 +64,7 @@ def render_class_info(class_service: ClassService):
 
 def render_setup_tab(class_service: ClassService, user_role):
     """Renders the setup tab containing class creation and deletion interface."""
-    st.markdown('<div style="font-size:1.1rem; font-weight:700; color:var(--on-surface); margin-top:0.5rem; margin-bottom:0.75rem; font-family:\'Cormorant Garamond\', serif; font-size:1.4rem;">Tạo lớp mới</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:1.1rem; font-weight:700; color:var(--on-surface); margin-top:0.5rem; margin-bottom:0.75rem; font-family:\'Be Vietnam Pro\', sans-serif; font-size:1.4rem;">Tạo lớp mới</div>', unsafe_allow_html=True)
     new_class_name = st.text_input("Tên lớp", placeholder="VD: OOP_2024", key="new_class")
     if st.button("Tạo lớp", key="btn_create_class", use_container_width=True) and new_class_name.strip():
         class_id = class_service.create_class(new_class_name.strip())
@@ -76,7 +76,7 @@ def render_setup_tab(class_service: ClassService, user_role):
             
     st.markdown("<hr style='margin: 1.5rem 0; border-color: var(--outline-variant); opacity: 0.5;'>", unsafe_allow_html=True)
     
-    st.markdown('<div style="font-size:1.1rem; font-weight:700; color:var(--on-surface); margin-bottom:0.75rem; font-family:\'Cormorant Garamond\', serif; font-size:1.4rem;">Quản lý lớp học hiện tại</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:1.1rem; font-weight:700; color:var(--on-surface); margin-bottom:0.75rem; font-family:\'Be Vietnam Pro\', sans-serif; font-size:1.4rem;">Quản lý lớp học hiện tại</div>', unsafe_allow_html=True)
     selected_class_id = st.session_state.get("selected_class_id")
     if selected_class_id:
         classes_df = class_service.get_classes()

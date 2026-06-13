@@ -7,6 +7,7 @@ class DemoPerformanceConfigTests(unittest.TestCase):
 
         self.assertEqual(config.VOTE_WINDOW, 2)
         self.assertEqual(config.VOTE_RATIO, 1.0)
+        self.assertEqual(config.PAD_VOTING_WINDOW, 3)
         self.assertGreaterEqual(config.TRACKER_TIMEOUT, 5.0)
         self.assertTrue(config.LIVENESS_ENABLED)
         self.assertTrue(config.PASSIVE_PAD_ENABLED)

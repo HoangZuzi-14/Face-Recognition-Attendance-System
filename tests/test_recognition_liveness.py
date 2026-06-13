@@ -150,6 +150,82 @@ class RecognitionLivenessGateTests(unittest.TestCase):
         self.assertTrue(gate.allowed)
         self.assertIs(observed["rppg_result"], pulse)
 
+    def test_clear_pad_live_bypasses_stale_uncertain_history(self):
+        from src.liveness import LivenessResult
+        from src.recognize import FaceTracker, evaluate_liveness_gate
+
+        tracker = FaceTracker(10, 10)
+        tracker.liveness_history = [
+            (0.50, 0.20, 0.25, 0.45),
+            (0.55, 0.15, 0.25, 0.40),
+        ]
+
+        def assessor(frame, landmarks=None, face_bbox=None, rppg_result=None):
+            return LivenessResult(
+                0.94,
+                "LIVE",
+                ["pad_live"],
+                {
+                    "pad": {
+                        "live_score": 0.94,
+                        "print_score": 0.03,
+                        "replay_score": 0.02,
+                        "spoof_score": 0.05,
+                    }
+                },
+            )
+
+        gate = evaluate_liveness_gate(
+            frame="frame",
+            face_bbox=(0, 0, 10, 10),
+            enabled=True,
+            assessor=assessor,
+            tracker=tracker,
+        )
+
+        self.assertTrue(gate.allowed)
+        self.assertEqual(gate.decision, "ACCEPT")
+        self.assertEqual(gate.result.label, "LIVE")
+        self.assertEqual(gate.short_reason, "pad_live_clear")
+
+    def test_clear_pad_spoof_bypasses_stale_live_history(self):
+        from src.liveness import LivenessResult
+        from src.recognize import FaceTracker, evaluate_liveness_gate
+
+        tracker = FaceTracker(10, 10)
+        tracker.liveness_history = [
+            (0.95, 0.02, 0.03, 0.05),
+            (0.92, 0.04, 0.04, 0.08),
+        ]
+
+        def assessor(frame, landmarks=None, face_bbox=None, rppg_result=None):
+            return LivenessResult(
+                0.06,
+                "SPOOF",
+                ["pad_low_score"],
+                {
+                    "pad": {
+                        "live_score": 0.06,
+                        "print_score": 0.70,
+                        "replay_score": 0.22,
+                        "spoof_score": 0.92,
+                    }
+                },
+            )
+
+        gate = evaluate_liveness_gate(
+            frame="frame",
+            face_bbox=(0, 0, 10, 10),
+            enabled=True,
+            assessor=assessor,
+            tracker=tracker,
+        )
+
+        self.assertFalse(gate.allowed)
+        self.assertEqual(gate.decision, "REJECT_SPOOF")
+        self.assertEqual(gate.result.label, "SPOOF")
+        self.assertEqual(gate.short_reason, "pad_spoof_clear")
+
     def test_process_frame_does_not_log_attendance_during_review(self):
         from unittest.mock import patch, MagicMock
         import numpy as np
