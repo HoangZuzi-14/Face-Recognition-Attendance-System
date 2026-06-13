@@ -1,5 +1,3 @@
-<div align="center">
-
 # Face Attendance
 
 **Realtime face-recognition attendance with class-scoped identity matching and passive anti-spoofing.**
@@ -7,28 +5,9 @@
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?style=for-the-badge&logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-Frontend-61DAFB?style=for-the-badge&logo=react&logoColor=0B1220)
-![TypeScript](https://img.shields.io/badge/TypeScript-Strict_UI-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
-![OpenCV](https://img.shields.io/badge/OpenCV-Native_Camera-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)
 ![ONNX Runtime](https://img.shields.io/badge/ONNX_Runtime-Inference-005CED?style=for-the-badge&logo=onnx&logoColor=white)
-
 ![Liveness](https://img.shields.io/badge/Liveness-Passive_PAD-ce1628?style=flat-square)
-![MiniFASNet](https://img.shields.io/badge/Anti--Spoof-MiniFASNet-111827?style=flat-square)
-![SQLite](https://img.shields.io/badge/Storage-SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
-![Vite](https://img.shields.io/badge/Build-Vite-646CFF?style=flat-square&logo=vite&logoColor=white)
-![pytest](https://img.shields.io/badge/Tests-pytest-0A9EDC?style=flat-square)
-![Vietnamese UI](https://img.shields.io/badge/Typography-Be_Vietnam_Pro-f43f5e?style=flat-square)
-
-<a href="#key-features">Features</a>
--
-<a href="#recent-liveness-optimization">Liveness</a>
--
-<a href="#installation">Install</a>
--
-<a href="#running-the-app">Run</a>
--
-<a href="#testing">Test</a>
-
-</div>
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
 
 ---
 
