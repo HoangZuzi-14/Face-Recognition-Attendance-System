@@ -119,6 +119,24 @@ npm run dev
 streamlit run app/main.py
 ```
 
+## Demo Accounts
+
+The app seeds two default demo users on startup:
+
+| Role | Username | Password | Purpose |
+| --- | --- | --- | --- |
+| Admin | `admin` | `admin123` | Full system administration |
+| Teacher | `teacher` | `teacher123` | Attendance and class operation |
+
+These credentials can be overridden with environment variables:
+
+```bash
+set ATTENDANCE_ADMIN_USERNAME=admin
+set ATTENDANCE_ADMIN_PASSWORD=admin123
+set ATTENDANCE_TEACHER_USERNAME=teacher
+set ATTENDANCE_TEACHER_PASSWORD=teacher123
+```
+
 ## Basic Workflow
 
 1. Create or select a class.
